@@ -17,15 +17,34 @@ struct partition {
 struct boot_sector {
     unsigned char jump_instr[3];
     unsigned char oem_name[8];
-	unsigned char dos_bpb[25];
-	unsigned char lspf[4];
+	unsigned char b_per_ls[2];
+	unsigned char ls_per_cl[1];
+	unsigned char count_reserved[2];
+	unsigned char n_fat[1];
+	unsigned char max_root_entry[2];
+	unsigned char total_ls[2];
+	unsigned char media_desc[1];
+	unsigned char ls_per_fat[2];
+	unsigned char ps_per_track[2];
+	unsigned char n_heads[2];
+	unsigned char n_hidden[4];
+	unsigned char total_ls_32[4];
+	unsigned char ls_per_fat32[4];
 	unsigned char drive_desc[2];
 	unsigned char version[2];
 	unsigned char root_start[4];
 	unsigned char fs_info[2];
 	unsigned char copy[2];
 	unsigned char reserved[12];
-	unsigned char cfs[26];
+	unsigned char phy_drive_numer[1];
+	unsigned char reserved_flag[1];
+	unsigned char ext_boot_sign[1];
+	unsigned char volume_id[4];
+	unsigned char volume_label[11];
+	unsigned char file_system_type[8];
+	unsigned char boot_code[419];
+	unsigned char drive_number[1];
+	unsigned char sign[2];
 };
 
 struct fs_info {
@@ -52,6 +71,14 @@ void string_in_hex(void *in_string, int in_string_size, int fold) {
 	printf("\n");
 }
 
+unsigned int string_to_int(void *in_string, int in_string_size) {
+	unsigned int x = 0;
+	for (int i = in_string_size - 1; i >= 0; --i) {
+		x <<= 8;
+		x += ((char *)in_string)[i] & 0xFF;
+	}
+	return x;
+}
 
 int dump_partition(struct partition *part, int partition_number) {
 	if (part->sys_type == 0x00 || part->sys_type != 0x0c)
@@ -69,41 +96,37 @@ int dump_partition(struct partition *part, int partition_number) {
 	string_in_hex(part->nr_sector, 4, 0);
 }
 
-void dump_bpb(unsigned char bpb[25]) {
-	printf("b_per_ls = ");
-	string_in_hex(bpb + 0x00, 2, 0);
-	printf("ls_per_cl = ");
-	string_in_hex(bpb + 0x02, 1, 0);
-	printf("count_reserved = ");
-	string_in_hex(bpb + 0x03, 1, 0);
-	printf("n_fat = ");
-	string_in_hex(bpb + 0x05, 1, 0);
-	printf("max_root_entry = ");
-	string_in_hex(bpb + 0x06, 2, 0);
-	printf("total_ls = ");
-	string_in_hex(bpb + 0x08, 2, 0);
-	printf("media_desc = ");
-	string_in_hex(bpb + 0x0a, 1, 0);
-	printf("ls_per_fat = ");
-	string_in_hex(bpb + 0x0b, 2, 0);
-	printf("ps_per_track = ");
-	string_in_hex(bpb + 0x0d, 2, 0);
-	printf("n_heads = ");
-	string_in_hex(bpb + 0x0f, 2, 0);
-	printf("n_hidden = ");
-	string_in_hex(bpb + 0x11, 4, 0);
-	printf("total_ls_32 = ");
-	string_in_hex(bpb + 0x15, 4, 0);
-}
-
 void dump_boot_sector(struct boot_sector *bs) {
 	printf("jump_instr = ");
 	string_in_hex(bs->jump_instr, 3, 0);
 	printf("oem_name = ");
 	string_in_hex(bs->oem_name, 8, 0);
-	dump_bpb(bs->dos_bpb);
-	printf("lspf = ");
-	string_in_hex(bs->lspf, 4, 0);
+	printf("b_per_ls = ");
+	string_in_hex(bs->b_per_ls, 2, 0);
+	printf("ls_per_cl = ");
+	string_in_hex(bs->ls_per_cl, 1, 0);
+	printf("count_reserved = ");
+	string_in_hex(bs->count_reserved, 2, 0);
+	printf("n_fat = ");
+	string_in_hex(bs->n_fat, 1, 0);
+	printf("max_root_entry = ");
+	string_in_hex(bs->max_root_entry, 2, 0);
+	printf("total_ls = ");
+	string_in_hex(bs->total_ls, 2, 0);
+	printf("media_desc = ");
+	string_in_hex(bs->media_desc, 1, 0);
+	printf("ls_per_fat = ");
+	string_in_hex(bs->ls_per_fat, 2, 0);
+	printf("ps_per_track = ");
+	string_in_hex(bs->ps_per_track, 2, 0);
+	printf("n_heads = ");
+	string_in_hex(bs->n_heads, 2, 0);
+	printf("n_hidden = ");
+	string_in_hex(bs->n_hidden, 4, 0);
+	printf("total_ls_32 = ");
+	string_in_hex(bs->total_ls_32, 4, 0);
+	printf("ls_per_fat32 = ");
+	string_in_hex(bs->ls_per_fat32, 4, 0);
 	printf("drive_desc = ");
 	string_in_hex(bs->drive_desc, 2, 0);
 	printf("version = ");
@@ -116,8 +139,39 @@ void dump_boot_sector(struct boot_sector *bs) {
 	string_in_hex(bs->copy, 2, 0);
 	printf("reserved = ");
 	string_in_hex(bs->reserved, 12, 0);
-	printf("cfs = \n");
-	string_in_hex(bs->cfs, 26, 1);
+	printf("phy_drive_numer = ");
+	string_in_hex(bs->phy_drive_numer, 1, 0);
+	printf("reserved_flag = ");
+	string_in_hex(bs->reserved_flag, 1, 0);
+	printf("volume_id = ");
+	string_in_hex(bs->volume_id, 4, 0);
+	printf("volume_label = ");
+	string_in_hex(bs->volume_label, 11, 0);
+	// printf("boot code\n");
+	// string_in_hex(bs->boot_code, 419, 1);
+	printf("file_system_type = ");
+	string_in_hex(bs->file_system_type, 8, 0);
+	printf("drive_number = ");
+	string_in_hex(bs->drive_number, 1, 0);
+	printf("sign = ");
+	string_in_hex(bs->sign, 2, 0);
+}
+
+void dump_fs_info(struct fs_info *fs) {
+	printf("sign1 = ");
+	string_in_hex(fs->sign1, 4, 0);
+	// printf("reserved1\n");
+	// string_in_hex(fs->reserved1, 480, 1);
+	printf("sign2 = ");
+	string_in_hex(fs->sign2, 4, 0);
+	printf("free = ");
+	string_in_hex(fs->free, 4, 0);
+	printf("allocated = ");
+	string_in_hex(fs->allocated, 4, 0);
+	printf("reserved2 = ");
+	string_in_hex(fs->reserved2, 12, 0);
+	printf("sign3 = ");
+	string_in_hex(fs->sign3, 4, 0);
 }
 
 int main() {
@@ -126,21 +180,16 @@ int main() {
 	char buf[512];
 
 	if ((fd = open("/dev/sda", O_RDONLY | O_SYNC)) == -1) {
-		perror("open");
+		perror("open device");
 		exit(1);
 	}
 	printf("fd = %d\n", fd);
 
-	pos = lseek (fd, 0, SEEK_CUR);
+	pos = lseek(fd, 0, SEEK_CUR);
 
 	printf("Position of pointer is: %d\n", pos);
 	if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-		perror("read");
-		exit(1);
-	}
-
-	if (close(fd) == -1) {
-		perror("close");
+		perror("read device");
 		exit(1);
 	}
 
@@ -152,13 +201,38 @@ int main() {
 	for (int i = 0 ; i < 4 ; ++i) {
 		struct partition *sp = (struct partition *)(buf + 446 + (16 * i));
 		int ret = dump_partition(sp, i);
-		// if (ret) {
-		// 	printf("\n************* BOOT SECTOR *************\n\n");
-		// 	struct boot_sector *bs = (struct boot_sector *)(buf + 0);
-		// 	dump_boot_sector(bs);
-		// }
+		if (ret) {
+			printf("\n************* BOOT SECTOR *************\n\n");
+			int partition_start = string_to_int(sp->start_sector, 4) * 512;
+			pos = lseek(fd, partition_start, SEEK_SET);
+			printf("Position of pointer is: %x\n", pos);
+			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
+				perror("read boot");
+				exit(1);
+			}
+			struct boot_sector *bs = (struct boot_sector *) buf;
+			// string_in_hex(buf, 512, 1);
+			dump_boot_sector(bs);
+
+			printf("\n************* FS INFO SECTOR *************\n\n");
+			int fs_info = partition_start + string_to_int(bs->fs_info, 2) * string_to_int(bs->b_per_ls, 2);
+			pos = lseek(fd, fs_info, SEEK_SET);
+			printf("Position of pointer is: %x\n", pos);
+			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
+				perror("read fs");
+				exit(1);
+			}
+			struct fs_info *fs = (struct fs_info *) buf;
+			// string_in_hex(buf, 512, 1);
+			dump_fs_info(fs);
+		}
 	}
 	printf("\n\n\n");
+
+	if (close(fd) == -1) {
+		perror("close");
+		exit(1);
+	}
 
 	return 0;
 }
