@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <math.h>
 
 struct partition {
     unsigned char boot_flag;
@@ -62,6 +63,23 @@ void string_in_hex(void *in_string, int in_string_size, int fold) {
 	int k = 0;
 	for (int i = 0; i < in_string_size; ++i) {
 		printf("%02x ", ((char *)in_string)[i] & 0xFF);
+		k = k + 1;
+		if (k == 16 && fold) {
+			printf("\n");
+			k = 0;
+		}
+	}
+	printf("\n");
+}
+
+void string_in_char(void *in_string, int in_string_size, int fold) {
+	int k = 0;
+	for (int i = 0; i < in_string_size; ++i) {
+		unsigned char c = ((char *)in_string)[i] & 0xFF;
+		if (c >= 32 && c <= 126)
+			printf("%c ", c);
+		else
+			printf("%c ", '.');
 		k = k + 1;
 		if (k == 16 && fold) {
 			printf("\n");
@@ -143,6 +161,8 @@ void dump_boot_sector(struct boot_sector *bs) {
 	string_in_hex(bs->phy_drive_numer, 1, 0);
 	printf("reserved_flag = ");
 	string_in_hex(bs->reserved_flag, 1, 0);
+	printf("ext_boot_sign = ");
+	string_in_hex(bs->ext_boot_sign, 1, 0);
 	printf("volume_id = ");
 	string_in_hex(bs->volume_id, 4, 0);
 	printf("volume_label = ");
@@ -174,6 +194,21 @@ void dump_fs_info(struct fs_info *fs) {
 	string_in_hex(fs->sign3, 4, 0);
 }
 
+int fat_start_address(struct boot_sector *bs) {
+	return string_to_int(bs->count_reserved, 2) * string_to_int(bs->b_per_ls, 2);
+}
+
+int sectors_start_address(struct boot_sector *bs) {
+	return (string_to_int(bs->count_reserved, 2) + 
+		string_to_int(bs->n_fat, 1) * string_to_int(bs->ls_per_fat32, 4) + 
+		ceil((32 * string_to_int(bs->max_root_entry, 2)) / string_to_int(bs->b_per_ls, 2))) *
+		string_to_int(bs->b_per_ls, 2);
+}
+
+int get_ls_address(int ssa, int ls_per_cl, int cl_n, int b_per_ls) {
+	return ssa + (cl_n - 2) * ls_per_cl * b_per_ls;
+}
+
 int main() {
 	int nr = 0, pos = -1;
 	int fd = 0;
@@ -187,7 +222,7 @@ int main() {
 
 	pos = lseek(fd, 0, SEEK_CUR);
 
-	printf("Position of pointer is: %d\n", pos);
+	printf("Position of pointer is: 0x%x\n", pos);
 	if ((nr = read(fd, buf, sizeof(buf))) == -1) {
 		perror("read device");
 		exit(1);
@@ -202,8 +237,9 @@ int main() {
 		struct partition *sp = (struct partition *)(buf + 446 + (16 * i));
 		int ret = dump_partition(sp, i);
 		if (ret) {
-			printf("\n************* BOOT SECTOR *************\n\n");
 			int partition_start = string_to_int(sp->start_sector, 4) * 512;
+			printf("\nPartition starting address is: 0x%x\n\n", partition_start);
+			printf("\n************* BOOT SECTOR *************\n\n");
 			pos = lseek(fd, partition_start, SEEK_SET);
 			printf("Position of pointer is: %x\n", pos);
 			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
@@ -214,10 +250,31 @@ int main() {
 			// string_in_hex(buf, 512, 1);
 			dump_boot_sector(bs);
 
+			int fsls = string_to_int(bs->fs_info, 2);	//	fs info logical sector
+			int rcl = string_to_int(bs->root_start, 4);	//	root cluster number
+			int lsc = string_to_int(bs->ls_per_cl, 1);	//	logical sectors per cluster
+			int bls = string_to_int(bs->b_per_ls, 2);	//	bytes per logical sector
+			int ssa = sectors_start_address(bs);		//	sector starting address
+			int fataddr = fat_start_address(bs);		//	(first) fat starting address 
+
+			printf("\nFAT starting address is: 0x%x\n", fataddr + partition_start);
+			printf("Sectors starting address is: 0x%x\n\n", ssa + partition_start);
+
+			printf("\n************* ROOT DIR SECTOR *************\n\n");
+			int root_dir = partition_start + get_ls_address(ssa, lsc, rcl, bls);
+			pos = lseek(fd, root_dir, SEEK_SET);
+			printf("Position of pointer is: 0x%x\n", pos);
+			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
+				perror("read root");
+				exit(1);
+			}
+			// string_in_hex(buf, 512, 1);
+			string_in_char(buf, 512, 1);
+
 			printf("\n************* FS INFO SECTOR *************\n\n");
-			int fs_info = partition_start + string_to_int(bs->fs_info, 2) * string_to_int(bs->b_per_ls, 2);
+			int fs_info = partition_start +  fsls * bls;
 			pos = lseek(fd, fs_info, SEEK_SET);
-			printf("Position of pointer is: %x\n", pos);
+			printf("Position of pointer is: 0x%x\n", pos);
 			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
 				perror("read fs");
 				exit(1);
