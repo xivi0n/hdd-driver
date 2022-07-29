@@ -257,29 +257,57 @@ int get_root_dir_entry(int root_dir, int entry_num) {
 	return root_dir + 32 + (entry_num - 1) * 32;
 }
 
-void dump_file(int fd, unsigned char sector[4], unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc) {
-	unsigned int n = string_to_int(sector, 4);
+int read_from_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned char cluster[4], unsigned int bls, unsigned int lsc) {
+	unsigned int n = string_to_int(cluster, 4);
 	int nr = 0;
-	unsigned char buf[lsc * bls];
 	printf("Cluster number: %u\n", n);
 	int pos = lseek(fd, get_ls_address(ssa, lsc, n, bls), SEEK_SET);
 	printf("Position of pointer is: 0x%x\n\n", pos);
-	if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-		perror("read file");
-		exit(1);
+	if ((nr = read(fd, buf, buf_size)) == -1) {
+		perror("read cluster");
+		return 0;
 	}
+	return nr;
+}
+
+int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned char cluster[4], unsigned int bls, unsigned int lsc) {
+	unsigned int n = string_to_int(cluster, 4);
+	int nw = 0;
+	printf("Cluster number: %u\n", n);
+	int pos = lseek(fd, get_ls_address(ssa, lsc, n, bls), SEEK_SET);
+	printf("Position of pointer is: 0x%x\n\n", pos);
+	if ((nw = write(fd, buf, buf_size)) == -1) {
+		perror("write cluster");
+		return 0;
+	}
+	return nw;
+}
+
+int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned int n) {
+	int pos = lseek(fd, fat + n * buf_size, SEEK_SET);
+	int nr = 0;
+	printf("Position of pointer is: 0x%x\n", pos);
+	if ((nr = read(fd, buf, buf_size)) == -1) {
+		perror("read fat entry");
+		return 0;
+	}
+	return nr;
+}
+
+void dump_file(int fd, unsigned char cluster[4], unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc) {
+	unsigned int n = string_to_int(cluster, 4);
+	int nr = 0;
+	unsigned char buf[lsc * bls];
+	printf("Cluster number: %u\n", n);
+	read_from_cluster(fd, buf, 32, ssa, cluster, bls, lsc);
 	string_in_char(buf, 32, 1);
 	string_in_hex(buf, 32, 1);
 
-	pos = lseek(fd, fat + n * 4, SEEK_SET);
-	printf("Position of pointer is: 0x%x\n", pos);
-	if ((nr = read(fd, buf, 4)) == -1) {
-		perror("read file");
-		exit(1);
-	}
+	get_fat_entry(fd, buf, 4, fat, n);
 	printf("FAT entry is: ");
 	string_in_hex(buf, 4, 0);
-	if (string_to_int(buf, 4) != 0x0FFFFFFF) {
+	unsigned int cluster_val = string_to_int(buf, 4) & 0x0FFFFFFF;
+	if (cluster_val != 0x0FFFFFFF) {
 		dump_file(fd, buf, fat, ssa, bls, lsc);
 	} else {
 		printf("\n************* EOF *************\n\n");
@@ -291,7 +319,7 @@ int main() {
 	int fd = 0;
 	char buf[512];
 
-	if ((fd = open("/dev/sda", O_RDONLY | O_SYNC)) == -1) {
+	if ((fd = open("/dev/sda", O_RDWR | O_SYNC)) == -1) {
 		perror("open device");
 		exit(1);
 	}
