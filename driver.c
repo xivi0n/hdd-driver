@@ -5,85 +5,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <math.h>
-
-struct partition {
-    unsigned char boot_flag;
-    unsigned char chs_begin[3];
-    unsigned char sys_type;
-    unsigned char chs_end[3];
-    unsigned char start_sector[4];
-    unsigned char nr_sector[4];
-};
-
-struct boot_sector {
-    unsigned char jump_instr[3];
-    unsigned char oem_name[8];
-	unsigned char b_per_ls[2];
-	unsigned char ls_per_cl[1];
-	unsigned char count_reserved[2];
-	unsigned char n_fat[1];
-	unsigned char max_root_entry[2];
-	unsigned char total_ls[2];
-	unsigned char media_desc[1];
-	unsigned char ls_per_fat[2];
-	unsigned char ps_per_track[2];
-	unsigned char n_heads[2];
-	unsigned char n_hidden[4];
-	unsigned char total_ls_32[4];
-	unsigned char ls_per_fat32[4];
-	unsigned char drive_desc[2];
-	unsigned char version[2];
-	unsigned char root_start[4];
-	unsigned char fs_info[2];
-	unsigned char copy[2];
-	unsigned char reserved[12];
-	unsigned char phy_drive_numer[1];
-	unsigned char reserved_flag[1];
-	unsigned char ext_boot_sign[1];
-	unsigned char volume_id[4];
-	unsigned char volume_label[11];
-	unsigned char file_system_type[8];
-	unsigned char boot_code[419];
-	unsigned char drive_number[1];
-	unsigned char sign[2];
-};
-
-struct fs_info {
-	unsigned char sign1[4];
-	unsigned char reserved1[480];
-	unsigned char sign2[4];
-	unsigned char free[4];
-	unsigned char allocated[4];
-	unsigned char reserved2[12];
-	unsigned char sign3[4];
-};
-
-struct dir_entry {
-	// LFN
-	unsigned char seq_num[1];
-	unsigned char name_1[10];
-	unsigned char attr[1];
-	unsigned char type[1];
-	unsigned char checksum[1];
-	unsigned char name_2[12];
-	unsigned char first_cl[2];
-	unsigned char name_3[4];
-	// 8.3 name
-	unsigned char short_name[8];
-	unsigned char short_ext[3];
-	unsigned char file_attr[1];
-	unsigned char user_attr[1];
-	unsigned char fc_fine_t[1];
-	unsigned char hash_t[2];
-	unsigned char create_date[2];
-	unsigned char owner_id[2];
-	unsigned char hi_cl[2];
-	unsigned char l_mod_t[2];
-	unsigned char l_mod_d[2];
-	unsigned char lo_cl[2];
-	unsigned char size[4];
-};
-
+#include <string.h>
+#include "driver.h"
 
 void string_in_hex(void *in_string, int in_string_size, int fold) {
 	int k = 0;
@@ -220,7 +143,7 @@ void dump_fs_info(struct fs_info *fs) {
 	string_in_hex(fs->sign3, 4, 0);
 }
 
-void dump_dir_entry(struct dir_entry* de){
+void dump_dir_entry(struct dir_entry* de) {
 	printf("name = ");
 	string_in_char(de->name_1, 10, 0);
 	string_in_char(de->name_2, 12, 0);
@@ -235,8 +158,10 @@ void dump_dir_entry(struct dir_entry* de){
 	string_in_hex(de->hi_cl, 2, 0);
 	printf("lo_cl = ");
 	string_in_hex(de->lo_cl, 2, 0);
+	printf("size = ");
+	string_in_hex(de->size, 4, 0);
+	printf("size = %u bytes\n", string_to_int(de->size, 4));
 }
-
 
 int fat_start_address(struct boot_sector *bs) {
 	return string_to_int(bs->count_reserved, 2) * string_to_int(bs->b_per_ls, 2);
@@ -253,32 +178,30 @@ int get_ls_address(int ssa, int ls_per_cl, int cl_n, int b_per_ls) {
 	return ssa + (cl_n - 2) * ls_per_cl * b_per_ls;
 }
 
-int get_root_dir_entry(int root_dir, int entry_num) {
-	return root_dir + 32 + (entry_num - 1) * 32;
+int get_root_dir_entry_address(int root_dir, int entry_num) {
+	return root_dir + 32 + (entry_num - 1) * 64;
 }
 
-int read_from_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned char cluster[4], unsigned int bls, unsigned int lsc) {
-	unsigned int n = string_to_int(cluster, 4);
+int read_from_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned int cluster, unsigned int bls, unsigned int lsc) {
 	int nr = 0;
-	printf("Cluster number: %u\n", n);
-	int pos = lseek(fd, get_ls_address(ssa, lsc, n, bls), SEEK_SET);
+	printf("Cluster number: %u\n", cluster);
+	int pos = lseek(fd, get_ls_address(ssa, lsc, cluster, bls), SEEK_SET);
 	printf("Position of pointer is: 0x%x\n\n", pos);
 	if ((nr = read(fd, buf, buf_size)) == -1) {
 		perror("read cluster");
-		return 0;
+		return -1;
 	}
 	return nr;
 }
 
-int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned char cluster[4], unsigned int bls, unsigned int lsc) {
-	unsigned int n = string_to_int(cluster, 4);
+int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned int cluster, unsigned int bls, unsigned int lsc) {
 	int nw = 0;
-	printf("Cluster number: %u\n", n);
-	int pos = lseek(fd, get_ls_address(ssa, lsc, n, bls), SEEK_SET);
+	printf("Cluster number: %u\n", cluster);
+	int pos = lseek(fd, get_ls_address(ssa, lsc, cluster, bls), SEEK_SET);
 	printf("Position of pointer is: 0x%x\n\n", pos);
 	if ((nw = write(fd, buf, buf_size)) == -1) {
 		perror("write cluster");
-		return 0;
+		return -1;
 	}
 	return nw;
 }
@@ -286,31 +209,108 @@ int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned cha
 int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned int n) {
 	int pos = lseek(fd, fat + n * buf_size, SEEK_SET);
 	int nr = 0;
-	printf("Position of pointer is: 0x%x\n", pos);
 	if ((nr = read(fd, buf, buf_size)) == -1) {
 		perror("read fat entry");
-		return 0;
+		return -1;
 	}
 	return nr;
 }
 
-void dump_file(int fd, unsigned char cluster[4], unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc) {
-	unsigned int n = string_to_int(cluster, 4);
+void dump_file(int fd, unsigned int cluster, unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc) {
 	int nr = 0;
 	unsigned char buf[lsc * bls];
-	printf("Cluster number: %u\n", n);
 	read_from_cluster(fd, buf, 32, ssa, cluster, bls, lsc);
 	string_in_char(buf, 32, 1);
 	string_in_hex(buf, 32, 1);
 
-	get_fat_entry(fd, buf, 4, fat, n);
+	get_fat_entry(fd, buf, 4, fat, cluster);
 	printf("FAT entry is: ");
 	string_in_hex(buf, 4, 0);
+	printf("--------------------------\n");
 	unsigned int cluster_val = string_to_int(buf, 4) & 0x0FFFFFFF;
 	if (cluster_val != 0x0FFFFFFF) {
-		dump_file(fd, buf, fat, ssa, bls, lsc);
+		dump_file(fd, cluster_val, fat, ssa, bls, lsc);
 	} else {
 		printf("\n************* EOF *************\n\n");
+	}
+}
+
+void get_mbr(int fd, struct mbr *mbr) {
+	int pos = lseek(fd, 0, SEEK_SET);
+	printf("Position of pointer is: 0x%x\n", pos);
+	if (read(fd, mbr, sizeof(struct mbr)) == -1) {
+		perror("read mbr");
+		exit(1);
+	}
+}
+
+void get_partition(int fd, int n, struct partition *pp) {
+	int pos = lseek(fd, 446 + 16 * n, SEEK_SET);
+	printf("Position of pointer is: 0x%x\n", pos);
+	if (read(fd, pp, sizeof(struct partition)) == -1) {
+		perror("read partition");
+		exit(1);
+	}
+}
+
+void get_partition_from_mbr(int n, struct mbr *mbr, struct partition *pp) {
+	memcpy(pp, mbr->partition_entry[n], sizeof(struct partition));
+}
+
+unsigned int get_partition_start(struct partition *pp) {
+	return string_to_int(pp->start_sector, 4) * 512;
+}
+
+void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *bs) {
+	int pos = lseek(fd, partition_start, SEEK_SET);
+	printf("Position of pointer is: 0x%x\n", pos);
+	if (read(fd, bs, sizeof(struct boot_sector)) == -1) {
+		perror("read boot_sector");
+		exit(1);
+	}
+}
+
+void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsigned int bls, struct fs_info *fs) {
+	unsigned int fs_info = partition_start +  fsls * bls;
+	int pos = lseek(fd, fs_info, SEEK_SET);
+	printf("Position of pointer is: 0x%x\n", pos);
+	if (read(fd, fs, sizeof(struct fs_info)) == -1) {
+		perror("read fs");
+		exit(1);
+	}
+}
+
+void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct dir_entry *de) {
+	unsigned int f_dir_entry = get_root_dir_entry_address(root_dir, n);
+	int pos = lseek(fd, f_dir_entry, SEEK_SET);
+	printf("Position of pointer is: 0x%x\n", pos);
+	if (read(fd, de, sizeof(struct dir_entry)) == -1) {
+		perror("read entry");
+		exit(1);
+	}
+}
+
+void get_fat(int fd, void *buf, int buf_size, unsigned int partition_start, unsigned int fataddr, unsigned int offset) {
+	if (buf_size % 4 != 0) {
+		perror("read fat");
+		exit(1);
+	}
+	unsigned char tmp[4];
+	for (int i = 0; i < buf_size / 4; ++i) {
+		get_fat_entry(fd, tmp, 4, partition_start + fataddr + offset * 4, i);
+		memcpy(buf + i * 4, tmp, 4);
+	}
+}
+
+void get_root_dir(int fd, void *buf, int buf_size, unsigned int partition_start, unsigned int rootaddr, unsigned int offset) {
+	if (buf_size % sizeof(struct dir_entry) != 0) {
+		perror("read root_dir");
+		exit(1);
+	}
+	struct dir_entry de;
+	for (int i = 0; i < buf_size / 4; ++i) {
+		get_root_dir_entry(fd, partition_start + rootaddr + offset * sizeof(struct dir_entry), i, &de);
+		memcpy(buf + i * 4, &de, 4);
 	}
 }
 
@@ -325,24 +325,21 @@ int main() {
 	}
 	printf("fd = %d\n", fd);
 
-	pos = lseek(fd, 0, SEEK_CUR);
-
-	printf("Position of pointer is: 0x%x\n", pos);
-	if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-		perror("read device");
-		exit(1);
-	}
+	struct mbr *mbr = malloc(sizeof(struct mbr));
+	get_mbr(fd, mbr);
 
 	// hexdump -n 512 -C /dev/sda
-	string_in_hex(buf, 512, 1);
+	string_in_hex(mbr, sizeof(struct mbr), 1);
 	printf("Size of buf = %ld - and number of bytes read are %d\n", sizeof(buf), nr);
 	
 	printf("\n************* THE MAIN PARTITIONS *************\n\n");
-	for (int i = 0 ; i < 4 ; ++i) {
-		struct partition *sp = (struct partition *)(buf + 446 + (16 * i));
+	for (int i = 0 ; i < 1 ; ++i) {
+		struct partition *sp = malloc(sizeof(struct partition));
+		get_partition_from_mbr(i, mbr, sp);
+		// get_partition(fd, i, sp);
 		int ret = dump_partition(sp, i);
 		if (ret) {
-			int partition_start = string_to_int(sp->start_sector, 4) * 512;
+			unsigned int partition_start = get_partition_start(sp);
 			printf("\nPartition starting address is: 0x%x\n\n", partition_start);
 			printf("\n************* BOOT SECTOR *************\n\n");
 			pos = lseek(fd, partition_start, SEEK_SET);
@@ -351,7 +348,8 @@ int main() {
 				perror("read boot");
 				exit(1);
 			}
-			struct boot_sector *bs = (struct boot_sector *) buf;
+			struct boot_sector *bs = malloc(sizeof(struct boot_sector));
+			get_boot_sector(fd, partition_start, bs);
 			// string_in_hex(buf, 512, 1);
 			dump_boot_sector(bs);
 
@@ -366,53 +364,35 @@ int main() {
 			printf("Sectors starting address is: 0x%x\n\n", ssa + partition_start);
 
 			printf("\n************* FS INFO SECTOR *************\n\n");
-			unsigned int fs_info = partition_start +  fsls * bls;
-			pos = lseek(fd, fs_info, SEEK_SET);
-			printf("Position of pointer is: 0x%x\n", pos);
-			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-				perror("read fs");
-				exit(1);
-			}
-			struct fs_info *fs = (struct fs_info *) buf;
+			
+			struct fs_info *fs = malloc(sizeof(struct fs_info));
+			get_fs_info(fd, partition_start, fsls, bls, fs);
 			// string_in_hex(buf, 512, 1);
 			dump_fs_info(fs);
 
 			printf("\n************* FAT SECTOR *************\n\n");
-			pos = lseek(fd, partition_start + fataddr, SEEK_SET);
-			printf("Position of pointer is: 0x%x\n", pos);
-			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-				perror("read fat");
-				exit(1);
-			}
+			get_fat(fd, buf, 512, partition_start, fataddr, 0);
 			string_in_hex(buf, 512, 1);
 
 			printf("\n************* ROOT DIR SECTOR *************\n\n");
-			unsigned int root_dir = partition_start + get_ls_address(ssa, lsc, rcl, bls);
-			pos = lseek(fd, root_dir, SEEK_SET);
-			printf("Position of pointer is: 0x%x\n", pos);
-			if ((nr = read(fd, buf, sizeof(buf))) == -1) {
-				perror("read root");
-				exit(1);
-			}
+			unsigned int rootaddr = get_ls_address(ssa, lsc, rcl, bls);
+			get_root_dir(fd, buf, 512, partition_start, rootaddr, 0);
 			// string_in_hex(buf, 512, 1);
 			string_in_char(buf, 512, 1);
 
 			printf("\n************* ROOT DIR ENTRY *************\n\n");
-			unsigned int f_dir_entry = get_root_dir_entry(root_dir, 1);
-			pos = lseek(fd, f_dir_entry, SEEK_SET);
-			printf("Position of pointer is: 0x%x\n", pos);
-			if ((nr = read(fd, buf, 64)) == -1) {
-				perror("read entry");
-				exit(1);
-			}
+			struct dir_entry *de = malloc(sizeof(struct dir_entry));
+			get_root_dir_entry(fd, rootaddr + partition_start, 1, de);
+			
 			string_in_hex(buf, 64, 1);
 			string_in_char(buf, 64, 1);
-			struct dir_entry *de = (struct dir_entry *) buf;
+			
 			dump_dir_entry(de);
 
 			printf("\n************* DUMP FILE *************\n\n");
 			unsigned char arr[4] = {de->lo_cl[0], de->lo_cl[1], de->hi_cl[0], de->hi_cl[1]};
-			dump_file(fd, arr, fataddr + partition_start, ssa + partition_start, bls, lsc);
+			unsigned int sector = string_to_int(arr, 4);
+			dump_file(fd, sector, fataddr + partition_start, ssa + partition_start, bls, lsc);
 		}
 	}
 	printf("\n\n\n");
