@@ -104,9 +104,11 @@ unsigned int get_partition_start(struct partition *pp);
 void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *bs); 
 void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsigned int bls, struct fs_info *fs);
 void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct dir_entry *de);
-void get_root_dir(int fd, void *buf, int buf_size, unsigned int partition_start, unsigned int rootaddr, unsigned int offset);
+void get_root_dir(int fd, void *buf, int buf_size, unsigned int rootaddr, unsigned int offset);
 int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned int n);
-void get_fat(int fd, void *buf, int buf_size, unsigned int partition_start, unsigned int fataddr, unsigned int offset);
+void get_fat(int fd, void *buf, int buf_size, unsigned int fataddr, unsigned int offset);
+
+struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned int rootaddr);
 
 int dump_partition(struct partition *part, int partition_number);
 void dump_boot_sector(struct boot_sector *bs);
