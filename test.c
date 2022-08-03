@@ -8,13 +8,20 @@
 #include <fcntl.h>
 #include <string.h>
 
+
 #ifndef NOT_TESTING
-int main() {
-    char shname[5] = "TEST1";
-    int size = 4096;
+// sudo ./test short_name filepath size_in_bytes device
+// sudo ./test TEST1 /media/syrmia/KINGSTON/test1.txt 2450 /dev/sdb
+int main(int argc, char **argv) {
+    if (argc != 5) {
+        perror("Invalid number of arguments!\n");
+    }
+    char shname[20];
+    strcpy(shname, argv[1]);
+    int size = atoi(argv[3]);
     printf("Size: %d\n", size);
     int fp;
-    if ((fp = creat("/media/syrmia/KINGSTON/test1.txt", S_IWUSR | S_IRUSR)) == -1)
+    if ((fp = creat(argv[2], S_IWUSR | S_IRUSR)) == -1)
         printf("cant open a file");
 
     for (int i = 0; i < size; ++i)
@@ -24,11 +31,29 @@ int main() {
         }
     
     fsync(fp);
+    printf("Sync done!\n");
     close(fp);
+    printf("File closed!\n");
+
+    char command[50];
+    strcpy(command, "sudo eject ");
+    strcpy(command + 11, argv[4]);
+    if (system(command) != 0 ) {
+        perror("eject");
+        exit(1);
+    }
+    sleep(1);
+    strcpy(command + 11, "-t ");
+    strcpy(command + 14, argv[4]);
+    if (system(command) != 0 ) {
+        perror("eject");
+        exit(1);
+    }
+    printf("Reset completed!\n");
 
     int fd = 0;
     unsigned char *buf = malloc(sizeof(char) * 512);
-    if ((fd = open("/dev/sda", O_RDWR | O_SYNC)) == -1) {
+    if ((fd = open("/dev/sdb", O_RDWR | O_SYNC)) == -1) {
 		perror("open device");
 		exit(1);
 	}
@@ -42,12 +67,17 @@ int main() {
     struct boot_sector bs;
     get_boot_sector(fd, p_start, &bs);
 
-    unsigned int fsls = string_to_int(bs.fs_info, 2);		//	fs info logical sector
-    unsigned int rcl = string_to_int(bs.root_start, 4);	    //	root cluster number
+    unsigned int fsls = string_to_int(bs.fs_info, 2);       //	fs info logical sector
+    unsigned int rcl = string_to_int(bs.root_start, 4);     //	root cluster number
     unsigned int lsc = string_to_int(bs.ls_per_cl, 1);		//	logical sectors per cluster
     unsigned int bls = string_to_int(bs.b_per_ls, 2);		//	bytes per logical sector
-    unsigned int ssa = sectors_start_address(&bs);			//	sector starting address
+    unsigned int ssa = sectors_start_address(&bs);          //  sector starting address
     unsigned int fataddr = p_start + fat_start_address(&bs);//	(first) fat starting address 
+    unsigned int rootaddr = p_start + get_ls_address(ssa, lsc, rcl, bls); //  root address
+
+    struct fs_info fs;
+    get_fs_info(fd, p_start, fsls, bls, &fs);
+    dump_fs_info(&fs);
 
     printf("FAT starting at: %x\n", fataddr);
 
@@ -60,7 +90,8 @@ int main() {
     memcpy(sector, de->lo_cl, 2);
     memcpy(sector + 2, de->hi_cl, 2);
     unsigned int offset = string_to_int(sector, 4);
-    printf("Sector: %d\n", offset);
+    printf("Sector: %x\n", offset);
+    printf("Address: 0x%x\n", p_start + get_ls_address(ssa, lsc, offset, bls));
     get_fat(fd, buf, 512, fataddr, offset);
     string_in_hex(buf, 512, 1);
 

@@ -23,7 +23,7 @@ void string_in_hex(void *in_string, int in_string_size, int fold) {
 	}
 	int k = 0;
 	for (int i = 0; i < in_string_size; ++i) {
-		if (k == 0) printf("%04x | ", i & 0xFFFF);
+		if (k == 0 && fold) printf("%04x | ", i & 0xFFFF);
 		printf("%02x ", ((char *)in_string)[i] & 0xFF);
 		k = k + 1;
 		if (k == 16 && fold) {
