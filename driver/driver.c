@@ -300,11 +300,14 @@ void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsign
 
 void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct dir_entry *de) {
 	unsigned int f_dir_entry = get_root_dir_entry_address(root_dir, n);
-	int pos = lseek(fd, f_dir_entry, SEEK_SET);
-	if (read(fd, de, sizeof(struct dir_entry)) == -1) {
+	int pos = lseek(fd, root_dir + trunc(1 - f_dir_entry/root_dir) * sysconf(_SC_PAGESIZE), SEEK_SET);
+	unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
+	if (read(fd, buf, sysconf(_SC_PAGESIZE)) == -1) {
 		perror("read entry");
 		exit(1);
 	}
+	memcpy(de, buf + f_dir_entry - root_dir, sizeof(struct dir_entry));
+	// free(buf);
 }
 
 void get_fat(int fd, void *buf, int buf_size, unsigned int fataddr, unsigned int offset) {
@@ -337,7 +340,7 @@ void get_root_dir(int fd, void *buf, int buf_size, unsigned int rootaddr, unsign
 struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned int rootaddr) {
 	struct dir_entry *de = malloc(sizeof(struct dir_entry));
 	unsigned int i = 0;
-	for(unsigned int i = 0; ((((char *)de->short_name)[0] & 0xFF) != 0xE5) && (strncmp(name, de->short_name, len) != 0); ++i){
+	for(unsigned int i = 1; ((((char *)de->short_name)[0] & 0xFF) != 0xE5) && (strncmp(name, de->short_name, len) != 0); ++i){
 		get_root_dir_entry(fd, rootaddr, i, de);
 	}
 	if ((((char *)de->short_name)[0] & 0xFF) == 0xE5) 
@@ -393,7 +396,8 @@ int main() {
 			unsigned int fataddr = fat_start_address(bs);			//	(first) fat starting address 
 
 			printf("\nFAT starting address is: 0x%x\n", fataddr + partition_start);
-			printf("Sectors starting address is: 0x%x\n\n", ssa + partition_start);
+			printf("Sectors starting address is: 0x%x\n", ssa + partition_start);
+			
 
 			printf("\n************* FS INFO SECTOR *************\n\n");
 			
@@ -408,11 +412,12 @@ int main() {
 
 			printf("\n************* ROOT DIR SECTOR *************\n\n");
 			unsigned int rootaddr = get_ls_address(ssa, lsc, rcl, bls);
+			printf("Root directory address is: 0x%x\n\n", rootaddr);
 			get_root_dir(fd, buf, 512, partition_start + rootaddr, 0);
 			// string_in_hex(buf, 512, 1);
 			string_in_char(buf, 512, 1);
 
-			break;
+			
 			printf("\n************* ROOT DIR ENTRY *************\n\n");
 			struct dir_entry *de = malloc(sizeof(struct dir_entry));
 			get_root_dir_entry(fd, rootaddr + partition_start, 1, de);
@@ -427,9 +432,12 @@ int main() {
 			unsigned int sector = string_to_int(arr, 4);
 			dump_file(fd, sector, fataddr + partition_start, ssa + partition_start, bls, lsc);
 
-			struct dir_entry *fde = get_dir_entry_by_shname(fd, "B", 1, rootaddr + partition_start);
-			if (fde != NULL)
+			struct dir_entry *fde = get_dir_entry_by_shname(fd, "TEST1", 5, rootaddr + partition_start);
+			if (fde != NULL) {
+				string_in_hex(fde, 64, 1);
+				string_in_char(fde, 64, 1);
 				dump_dir_entry(fde);
+			}
 		}
 	}
 	printf("\n\n\n");

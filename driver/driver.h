@@ -2,23 +2,23 @@
 #define driver_h_
 
 struct mbr {
-    unsigned char bootstrap_code[446];
-    unsigned char partition_entry[4][16];
-    unsigned char boot_sign[2];
+	unsigned char bootstrap_code[446];
+	unsigned char partition_entry[4][16];
+	unsigned char boot_sign[2];
 };
 
 struct partition {
-    unsigned char boot_flag;
-    unsigned char chs_begin[3];
-    unsigned char sys_type;
-    unsigned char chs_end[3];
-    unsigned char start_sector[4];
-    unsigned char nr_sector[4];
+	unsigned char boot_flag;
+	unsigned char chs_begin[3];
+	unsigned char sys_type;
+	unsigned char chs_end[3];
+	unsigned char start_sector[4];
+	unsigned char nr_sector[4];
 };
 
 struct boot_sector {
-    unsigned char jump_instr[3];
-    unsigned char oem_name[8];
+	unsigned char jump_instr[3];
+	unsigned char oem_name[8];
 	unsigned char b_per_ls[2];
 	unsigned char ls_per_cl[1];
 	unsigned char count_reserved[2];
