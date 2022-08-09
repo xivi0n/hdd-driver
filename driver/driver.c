@@ -8,6 +8,13 @@
 #include <string.h>
 #include "driver.h"
 
+/**
+ * Function for printing in_string buffer in hex format
+ * @param in_string buffer we would like to print
+ * @param in_string_size size of the buffer
+ * @param fold boolean type of param to indicate should 
+ * we word-wrap on 16 chars or not 	
+ */
 void string_in_hex(void *in_string, int in_string_size, int fold) {
 	if (fold) {
 		printf("     | ");
@@ -34,6 +41,13 @@ void string_in_hex(void *in_string, int in_string_size, int fold) {
 	printf("\n");
 }
 
+/**
+ * Function for printing in_string buffer as chars
+ * @param in_string buffer we would like to print
+ * @param in_string_size size of the buffer
+ * @param fold boolean type of param to indicate should 
+ * we word-wrap on 16 chars or not 	
+ */
 void string_in_char(void *in_string, int in_string_size, int fold) {
 	int k = 0;
 	for (int i = 0; i < in_string_size; ++i) {
@@ -51,6 +65,13 @@ void string_in_char(void *in_string, int in_string_size, int fold) {
 	printf("\n");
 }
 
+/**
+ * Helper function used to convert array of bytes from 
+ * little endian format to a number
+ * @param in_string byte array 
+ * @param in_string_size byte array length
+ * @return value calculated from little endian format
+ */
 unsigned int string_to_int(void *in_string, int in_string_size) {
 	unsigned int x = 0;
 	for (int i = in_string_size - 1; i >= 0; --i) {
@@ -60,6 +81,12 @@ unsigned int string_to_int(void *in_string, int in_string_size) {
 	return x;
 }
 
+/**
+ * Printing partition information
+ * @param part partition we would like to print
+ * @param partition_number optional; used just as index
+ * @return boolean information if partition is empty or not
+ */
 int dump_partition(struct partition *part, int partition_number) {
 	if (part->sys_type == 0x00 || part->sys_type != 0x0c)
 		return 0;
@@ -76,6 +103,10 @@ int dump_partition(struct partition *part, int partition_number) {
 	string_in_hex(part->nr_sector, 4, 0);
 }
 
+/**
+ * Printing boot sector
+ * @param bs boot sector we would like to print
+ */
 void dump_boot_sector(struct boot_sector *bs) {
 	printf("jump_instr = ");
 	string_in_hex(bs->jump_instr, 3, 0);
@@ -139,6 +170,10 @@ void dump_boot_sector(struct boot_sector *bs) {
 	string_in_hex(bs->sign, 2, 0);
 }
 
+/**
+ * Printing fs information sector
+ * @param fs fs information sector we would like to print
+ */
 void dump_fs_info(struct fs_info *fs) {
 	printf("sign1 = ");
 	string_in_hex(fs->sign1, 4, 0);
@@ -156,6 +191,10 @@ void dump_fs_info(struct fs_info *fs) {
 	string_in_hex(fs->sign3, 4, 0);
 }
 
+/**
+ * Printing directory entry
+ * @param de directory entry we would like to print
+ */
 void dump_dir_entry(struct dir_entry* de) {
 	printf("name = ");
 	string_in_char(de->name_1, 10, 0);
@@ -177,10 +216,20 @@ void dump_dir_entry(struct dir_entry* de) {
 	printf("size = %u bytes\n", string_to_int(de->size, 4));
 }
 
+/**
+ * Get fat starting address from boot sector
+ * @param bs boot sector
+ * @return fat sector starting address
+ */
 int fat_start_address(struct boot_sector *bs) {
 	return string_to_int(bs->count_reserved, 2) * string_to_int(bs->b_per_ls, 2);
 }
 
+/**
+ * Get data sectors address from boot sector
+ * @param bs boot sector
+ * @return data sectors starting address
+ */
 int sectors_start_address(struct boot_sector *bs) {
 	return (string_to_int(bs->count_reserved, 2) + 
 		string_to_int(bs->n_fat, 1) * string_to_int(bs->ls_per_fat32, 4) + 
@@ -188,14 +237,39 @@ int sectors_start_address(struct boot_sector *bs) {
 		string_to_int(bs->b_per_ls, 2);
 }
 
+/**
+ * Get logical sector address of a cluster number
+ * @param ssa data sector starting address
+ * @param ls_per_cl logical sectors per cluster
+ * @param cl_n cluster number
+ * @param b_per_ls bytes per logical sector
+ * @return logical sector address
+ */
 int get_ls_address(int ssa, int ls_per_cl, int cl_n, int b_per_ls) {
 	return ssa + (cl_n - 2) * ls_per_cl * b_per_ls;
 }
 
+/**
+ * Get the root directory entry address
+ * @param root_dir root directory address
+ * @param entry_num root directory entry number
+ * @return root directory entry address
+ */
 int get_root_dir_entry_address(int root_dir, int entry_num) {
 	return root_dir + 32 + (entry_num - 1) * 64;
 }
 
+/**
+ * Read cluster data to the given buffer
+ * @param fd file descriptor 
+ * @param buf buffer in which we would like to read data
+ * @param buf_size size of the buffer
+ * @param ssa data sector starting address
+ * @param cluster cluster number
+ * @param bls bytes per logical sector
+ * @param lsc logical sectors per cluster
+ * @return number of bytes read, -1 if error
+ */
 int read_from_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned int cluster, unsigned int bls, unsigned int lsc) {
 	int nr = 0;
 	printf("Cluster number: %u\n", cluster);
@@ -208,6 +282,17 @@ int read_from_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned in
 	return nr;
 }
 
+/**
+ * Write buffer to the cluster
+ * @param fd file descriptor
+ * @param buf buffer we would like to write
+ * @param buf_size size of the buffer
+ * @param ssa data sector starting address
+ * @param cluster cluster number
+ * @param bls bytes per logical sector
+ * @param lsc logical sectors per cluster
+ * @return number of bytes written, -1 if error
+ */
 int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned int cluster, unsigned int bls, unsigned int lsc) {
 	int nw = 0;
 	printf("Cluster number: %u\n", cluster);
@@ -220,6 +305,15 @@ int write_to_cluster(int fd, void *buf, int buf_size, unsigned ssa, unsigned int
 	return nw;
 }
 
+/**
+ * Get the FAT entry
+ * @param fd file descriptor
+ * @param buf buffer in which we would like to read data
+ * @param buf_size buffer size (ex.: FAT32 = 4)
+ * @param fat fat starting address
+ * @param n fat entry number
+ * @return number of bytes read, -1 if error
+ */
 int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned int n) {
 	int pos = lseek(fd, fat + n * buf_size, SEEK_SET);
 	int nr = 0;
@@ -230,6 +324,15 @@ int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned in
 	return nr;
 }
 
+/**
+ * Print file starting from given cluster number
+ * @param fd file descriptor
+ * @param cluster fat entry number
+ * @param fat fat starting address
+ * @param ssa data sector starting address
+ * @param bls bytes per logical sector
+ * @param lsc logical sector per cluster
+ */
 void dump_file(int fd, unsigned int cluster, unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc) {
 	int nr = 0;
 	unsigned char buf[lsc * bls];
@@ -253,6 +356,11 @@ void dump_file(int fd, unsigned int cluster, unsigned int fat, unsigned int ssa,
 	}
 }
 
+/**
+ * Get the mbr 
+ * @param fd file descriptor
+ * @param mbr mbr poiner
+ */
 void get_mbr(int fd, struct mbr *mbr) {
 	int pos = lseek(fd, 0, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
@@ -262,6 +370,12 @@ void get_mbr(int fd, struct mbr *mbr) {
 	}
 }
 
+/**
+ * Get the partition
+ * @param fd file descriptor
+ * @param n partition number
+ * @param pp partition pointer
+ */
 void get_partition(int fd, int n, struct partition *pp) {
 	int pos = lseek(fd, 446 + 16 * n, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
@@ -271,14 +385,31 @@ void get_partition(int fd, int n, struct partition *pp) {
 	}
 }
 
+/**
+ * Get the partition from the mbr struct
+ * @param n partition number
+ * @param mbr mbr
+ * @param pp partition pointer
+ */
 void get_partition_from_mbr(int n, struct mbr *mbr, struct partition *pp) {
 	memcpy(pp, mbr->partition_entry[n], sizeof(struct partition));
 }
 
+/**
+ * Get the partition starting address
+ * @param pp partition 
+ * @return partition starting address 
+ */
 unsigned int get_partition_start(struct partition *pp) {
 	return string_to_int(pp->start_sector, 4) * 512;
 }
 
+/**
+ * Get the boot sector of a partition
+ * @param fd file descriptor
+ * @param partition_start partition starting address
+ * @param bs boot sector pointer
+ */
 void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *bs) {
 	int pos = lseek(fd, partition_start, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
@@ -288,6 +419,15 @@ void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *b
 	}
 }
 
+
+/**
+ * Get the FS information sector
+ * @param fd file descriptor
+ * @param partition_start partition starting address
+ * @param fsls fs information logical sector number
+ * @param bls bytes per logical sector
+ * @param fs fs information sector pointer
+ */
 void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsigned int bls, struct fs_info *fs) {
 	unsigned int fs_info = partition_start +  fsls * bls;
 	int pos = lseek(fd, fs_info, SEEK_SET);
@@ -298,6 +438,13 @@ void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsign
 	}
 }
 
+/**
+ * Get root directory entry
+ * @param fd file descriptor
+ * @param root_dir root directory starting address
+ * @param n root directory entry number
+ * @param de root directory entry pointer
+ */
 void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct dir_entry *de) {
 	unsigned int f_dir_entry = get_root_dir_entry_address(root_dir, n);
 	int pos = lseek(fd, root_dir + trunc(1 - f_dir_entry/root_dir) * sysconf(_SC_PAGESIZE), SEEK_SET);
@@ -310,6 +457,14 @@ void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct di
 	// free(buf);
 }
 
+/**
+ * Get the part of FAT
+ * @param fd file descriptor
+ * @param buf buffer
+ * @param buf_size size of buffer, must be % 4 (for FAT32)
+ * @param fataddr fat starting address
+ * @param offset number of entries offset from the start
+ */
 void get_fat(int fd, void *buf, int buf_size, unsigned int fataddr, unsigned int offset) {
 	if (buf_size % 4 != 0) {
 		perror("read fat");
@@ -322,6 +477,14 @@ void get_fat(int fd, void *buf, int buf_size, unsigned int fataddr, unsigned int
 	}
 }
 
+/**
+ * Get the part of root directory
+ * @param fd file descriptor
+ * @param buf buffer
+ * @param buf_size size of buffer
+ * @param rootaddr root directory starting address
+ * @param offset number of entries offset from the start
+ */
 void get_root_dir(int fd, void *buf, int buf_size, unsigned int rootaddr, unsigned int offset) {
 	int size = sizeof(struct dir_entry);
 	if (buf_size % size != 0) {
@@ -335,8 +498,14 @@ void get_root_dir(int fd, void *buf, int buf_size, unsigned int rootaddr, unsign
 	}
 }
 
-
-
+/**
+ * Get the root directory entry from short name
+ * @param fd file descriptor
+ * @param name short name of the file
+ * @param len short name lenght
+ * @param rootaddr root directory starting address
+ * @return pointer of root directory entry
+ */
 struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned int rootaddr) {
 	struct dir_entry *de = malloc(sizeof(struct dir_entry));
 	unsigned int i = 0;
