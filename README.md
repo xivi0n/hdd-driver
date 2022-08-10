@@ -19,3 +19,17 @@ for almost everything we need.
 Tests are example usage of driver:
 - Test0 creates a file and returns it's address and cluster number
 - Test1 calculates disk buffer size on a given device
+
+## Building 
+
+Setup: 
+```sh
+$ mkdir bin
+$ cd bin
+$ cmake ../hdd-driver
+```
+
+Build:
+```sh
+cmake --build .
+```
