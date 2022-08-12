@@ -109,6 +109,7 @@ int get_fat_entry(int fd, void *buf, int buf_size, unsigned int fat, unsigned in
 void get_fat(int fd, void *buf, int buf_size, unsigned int fataddr, unsigned int offset);
 
 struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned int rootaddr);
+unsigned int get_bad_sector_count(int fd, unsigned int fat, unsigned int ls_per_fat);
 
 int dump_partition(struct partition *part, int partition_number);
 void dump_boot_sector(struct boot_sector *bs);

@@ -362,12 +362,15 @@ void dump_file(int fd, unsigned int cluster, unsigned int fat, unsigned int ssa,
  * @param mbr mbr poiner
  */
 void get_mbr(int fd, struct mbr *mbr) {
+	unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
 	int pos = lseek(fd, 0, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
-	if (read(fd, mbr, sizeof(struct mbr)) == -1) {
+	if (read(fd, buf, sysconf(_SC_PAGESIZE)) == -1) {
 		perror("read mbr");
 		exit(1);
 	}
+	memcpy(mbr, buf, sizeof(struct mbr));
+	free(buf);
 }
 
 /**
@@ -411,12 +414,15 @@ unsigned int get_partition_start(struct partition *pp) {
  * @param bs boot sector pointer
  */
 void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *bs) {
+	unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
 	int pos = lseek(fd, partition_start, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
-	if (read(fd, bs, sizeof(struct boot_sector)) == -1) {
+	if (read(fd, buf, sysconf(_SC_PAGESIZE)) == -1) {
 		perror("read boot_sector");
 		exit(1);
 	}
+	memcpy(bs, buf, sizeof(struct boot_sector));
+	free(buf);
 }
 
 
@@ -429,13 +435,16 @@ void get_boot_sector(int fd, unsigned int partition_start, struct boot_sector *b
  * @param fs fs information sector pointer
  */
 void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsigned int bls, struct fs_info *fs) {
+	unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
 	unsigned int fs_info = partition_start +  fsls * bls;
 	int pos = lseek(fd, fs_info, SEEK_SET);
 	printf("Position of pointer is: 0x%x\n", pos);
-	if (read(fd, fs, sizeof(struct fs_info)) == -1) {
+	if (read(fd, buf, sysconf(_SC_PAGESIZE)) == -1) {
 		perror("read fs");
 		exit(1);
 	}
+	memcpy(fs, buf , sizeof(struct fs_info));
+	free(buf);
 }
 
 /**
@@ -447,14 +456,15 @@ void get_fs_info(int fd, unsigned int partition_start, unsigned int fsls, unsign
  */
 void get_root_dir_entry(int fd, unsigned int root_dir, unsigned int n, struct dir_entry *de) {
 	unsigned int f_dir_entry = get_root_dir_entry_address(root_dir, n);
-	int pos = lseek(fd, root_dir + trunc(1 - f_dir_entry/root_dir) * sysconf(_SC_PAGESIZE), SEEK_SET);
+	int pos = lseek(fd, root_dir + (f_dir_entry - root_dir) / sysconf(_SC_PAGESIZE) * sysconf(_SC_PAGESIZE), SEEK_SET);
 	unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
 	if (read(fd, buf, sysconf(_SC_PAGESIZE)) == -1) {
 		perror("read entry");
 		exit(1);
 	}
+	struct dir_entry tmp;
 	memcpy(de, buf + f_dir_entry - root_dir, sizeof(struct dir_entry));
-	// free(buf);
+	free(buf);
 }
 
 /**
@@ -508,13 +518,42 @@ void get_root_dir(int fd, void *buf, int buf_size, unsigned int rootaddr, unsign
  */
 struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned int rootaddr) {
 	struct dir_entry *de = malloc(sizeof(struct dir_entry));
+	de->short_name[0] = 0xE5;
 	unsigned int i = 0;
-	for(unsigned int i = 1; ((((char *)de->short_name)[0] & 0xFF) != 0xE5) && (strncmp(name, de->short_name, len) != 0); ++i){
+	for(unsigned int i = 1; ((((char *)de->short_name)[0] & 0xFF) != 0x00) && (strncmp(name, de->short_name, len) != 0); ++i){
 		get_root_dir_entry(fd, rootaddr, i, de);
+		printf("---0x%x--\n", ((de->short_name[0] & 0xFF)));
 	}
-	if ((((char *)de->short_name)[0] & 0xFF) == 0xE5) 
-		return 0;
+	if ((((char *)de->short_name)[0] & 0xFF) == 0x00) 
+		return NULL;
 	return de;
+}
+
+/**
+ * Get the bad sector count
+ * @param fd file descriptor
+ * @param fat file allocation table start
+ * @param ls_per_fat logical sectors per fat
+ * @return bad sector count
+ */
+unsigned int get_bad_sector_count(int fd, unsigned int fat, unsigned int ls_per_fat) {
+	unsigned int count = 0;
+	unsigned int ps = sysconf(_SC_PAGESIZE);
+	unsigned char *buf = aligned_alloc(ps, ps);
+	for (int i = 0; i * ps < ls_per_fat; ++i) {
+		int pos = lseek(fd, fat + i * ps, SEEK_SET);
+		if (read(fd, buf, ps) == -1) {
+			perror("read entry");
+			exit(1);
+		}
+		for (int j = 0; j < ps / 4; ++j) {
+			unsigned int entry = string_to_int(buf + j * 4, 4) & 0x0FFFFFFF;
+			if (entry == 0x0FFFFFF7)
+				count++;
+		}
+	}
+	free(buf);
+	return count;
 }
 
 #ifdef NOT_TESTING
@@ -607,6 +646,7 @@ int main() {
 				string_in_char(fde, 64, 1);
 				dump_dir_entry(fde);
 			}
+			printf("Bad sector count: %u\n", get_bad_sector_count(fd, fataddr + partition_start, string_to_int(bs->ls_per_fat32, 4)));
 		}
 	}
 	printf("\n\n\n");
