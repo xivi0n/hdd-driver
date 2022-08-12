@@ -1,1 +1,1 @@
-add_library(Driver driver.c)
+add_library(driver driver.c)
