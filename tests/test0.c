@@ -10,43 +10,39 @@
 
 
 #ifndef NOT_TESTING
-// sudo ./test short_name filepath size_in_bytes device
-// sudo ./test TEST0 /media/syrmia/KINGSTON/test0.txt 2450 /dev/sdb
+// sudo ./test0 short_name filepath size_in_bytes device
+// sudo ./test0 TEST0 /media/syrmia/KINGSTON/test0.txt 2450 /dev/sdb
 int main(int argc, char **argv) {
     if (argc != 5) {
         perror("Invalid number of arguments!\n");
+        return 0;
     }
     char shname[20];
     strcpy(shname, argv[1]);
     int size = atoi(argv[3]);
     printf("Size: %d\n", size);
     int fp;
-    if ((fp = creat(argv[2], S_IWUSR | S_IRUSR)) == -1)
+    if ((fp = open(argv[2], O_TRUNC | O_CREAT | O_WRONLY | __O_DIRECT | O_SYNC)) == -1)
         printf("cant open a file");
 
+    unsigned char *buf = aligned_alloc(sysconf(_SC_PAGESIZE), sysconf(_SC_PAGESIZE));
+    memset(buf, 'a', sysconf(_SC_PAGESIZE));
     for (int i = 0; i < size; ++i)
-        if (write(fp, "a", 1) == -1) {
+        if (write(fp, buf, sysconf(_SC_PAGESIZE)) == -1) {
             perror("usr write");
             exit(1);
         }
     
     fsync(fp);
+    fdatasync(fp);
     printf("Sync done!\n");
     close(fp);
     printf("File closed!\n");
 
-    char command[50];
-    strcpy(command, "sudo hdparm -f ");
-    strcpy(command + 15, argv[4]);
-    if (system(command) != 0 ) {
-        perror("hdparm");
-        exit(1);
-    }
     printf("Reset completed!\n");
 
     int fd = 0;
-    unsigned char *buf = malloc(sizeof(char) * 512);
-    if ((fd = open("/dev/sdb", O_RDWR | O_SYNC)) == -1) {
+    if ((fd = open(argv[4], O_RDONLY | __O_DIRECT | O_SYNC)) == -1) {
 		perror("open device");
 		exit(1);
 	}
@@ -84,9 +80,8 @@ int main(int argc, char **argv) {
     unsigned int offset = string_to_int(sector, 4);
     printf("Sector: %x\n", offset);
     printf("Address: 0x%x\n", p_start + get_ls_address(ssa, lsc, offset, bls));
-    get_fat(fd, buf, 512, fataddr, offset);
-    string_in_hex(buf, 512, 1);
-
+    // get_fat(fd, buf, 512, fataddr, offset);
+    // string_in_hex(buf, 512, 1);
     close(fd);
     return 0;
 }
