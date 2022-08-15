@@ -9,13 +9,12 @@
 #include <string.h>
 
 
-#ifndef NOT_TESTING
 // sudo ./test0 short_name filepath size_in_bytes device
 // sudo ./test0 TEST0 /media/syrmia/KINGSTON/test0.txt 2450 /dev/sdb
 int main(int argc, char **argv) {
     if (argc != 5) {
         perror("Invalid number of arguments!\n");
-        return 0;
+        return 1;
     }
     char shname[20];
     strcpy(shname, argv[1]);
@@ -85,4 +84,3 @@ int main(int argc, char **argv) {
     close(fd);
     return 0;
 }
-#endif
