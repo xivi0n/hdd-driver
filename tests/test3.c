@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/time.h>
+#include "../driver/colors.h"
 
 
 double get_secs(struct timeval start, struct timeval stop) {
@@ -27,12 +28,16 @@ struct timeval sub_t(struct timeval t1, struct timeval t2) {
 
 void timeit(void (*f)(int, unsigned char*, char*), int size, unsigned char *buf,char *indicator, char *filename) {
     struct timeval start, stop;
+    set_cl(_CL_HEADER, _CL_BOLD);
     printf("running: %s...\n", indicator);
+    set_cl(_CL_ENDC);
     fflush(stdout);
     gettimeofday(&start, NULL);
     f(size, buf, filename);
     gettimeofday(&stop, NULL);
+    set_cl(_CL_OKGREEN, _CL_BOLD);
     printf("time taken: %f\n\n", get_secs(start, stop));
+    set_cl(_CL_ENDC);
     fflush(stdout);
 }
 
