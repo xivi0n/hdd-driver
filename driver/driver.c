@@ -6,8 +6,8 @@
 #include <fcntl.h>
 #include <math.h>
 #include <string.h>
-#include "driver.h"
 #include <time.h>
+#include "driver.h"
 
 /**
  * Function for printing in_string buffer in hex format

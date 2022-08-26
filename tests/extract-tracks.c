@@ -1,4 +1,3 @@
-#include "../driver/driver.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,9 +10,8 @@
 #include <malloc.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include "../driver/driver.h"
 
-
-#define CLAMPU(N,LIMIT) do { if ((N)>(LIMIT)) (N)=(LIMIT); } while(0)
 int main() {
     char *fname = "/dev/sda";
     unsigned long long measure_rpm_time = 3000000000;

@@ -1,6 +1,8 @@
 #ifndef driver_h_
 #define driver_h_
 
+#include <stdio.h>
+
 #ifndef CLOCK_MONOTONIC_RAW
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
