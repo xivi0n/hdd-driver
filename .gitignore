@@ -1,5 +1,8 @@
 .vscode
 bin
+analysis/*.txt
+analysis/*.json
+analysis/*.out
 
 *.out
 hdd
