@@ -73,7 +73,7 @@ void write_direct(int size, unsigned char *buf, char *filename) {
 
 void write_fsync(int size, unsigned char *buf, char *filename) {
     struct timeval tmp[2], total[3] = {{0, 0}, {0, 0}, {0, 0}};
-    int fd = open(filename,  O_TRUNC | O_WRONLY | O_CREAT | O_SYNC); // O_ASYNC O_SYNC
+    int fd = open(filename,  O_TRUNC | O_WRONLY | O_CREAT | O_ASYNC); // O_ASYNC O_SYNC
     if (fd < 0) {
         perror("file open error");
         exit(1);
@@ -103,7 +103,7 @@ void write_fsync(int size, unsigned char *buf, char *filename) {
 
 void write_fdatasync(int size, unsigned char *buf, char *filename) {
     struct timeval tmp[2], total[3] = {{0, 0}, {0, 0}, {0, 0}};
-    int fd = open(filename,  O_TRUNC | O_WRONLY | O_CREAT | O_DSYNC); // O_ASYNC O_DSYNC
+    int fd = open(filename,  O_TRUNC | O_WRONLY | O_CREAT | O_ASYNC); // O_ASYNC O_DSYNC
     if (fd < 0) {
         perror("file open error");
         exit(1);
