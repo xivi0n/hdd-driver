@@ -1004,7 +1004,7 @@ void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start
 		
 		if (new_pos > end)
 			new_pos = end;		// find_next_track_boundary can overrun the end of disk, so clamp the result then quit.
-		// fprintf(output, "%llu\t%lld\n", new_pos, (new_pos - pos));
+		fprintf(output, "%llu\t%lld\n", new_pos, (new_pos - pos));
 		if (c++ == 32) {
 			c = 0;
 			fflush(output);
