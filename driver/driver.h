@@ -1,6 +1,10 @@
 #ifndef driver_h_
 #define driver_h_
 
+#ifndef CLOCK_MONOTONIC_RAW
+#define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
+#endif
+
 struct mbr {
 	unsigned char bootstrap_code[446];
 	unsigned char partition_entry[4][16];
@@ -85,6 +89,18 @@ struct dir_entry {
 	unsigned char size[4];
 };
 
+struct sample_stat {
+	double sum, sumsq;
+	unsigned int count;
+};
+
+void sample_stat_reset(struct sample_stat *ss);
+void sample_stat_sample(struct sample_stat *ss, double value);
+double sample_stat_mean(struct sample_stat *ss);
+double sample_stat_stdevp(struct sample_stat *ss);
+double sample_stat_stdev(struct sample_stat *ss);
+double sample_stat_stdevrr(struct sample_stat *ss);
+
 void string_in_hex(void *in_string, int in_string_size, int fold);
 void string_in_char(void *in_string, int in_string_size, int fold);
 unsigned int string_to_int(void *in_string, int in_string_size);
@@ -116,5 +132,16 @@ void dump_boot_sector(struct boot_sector *bs);
 void dump_fs_info(struct fs_info *fs);
 void dump_dir_entry(struct dir_entry* de);
 void dump_file(int fd, unsigned int cluster, unsigned int fat, unsigned int ssa, unsigned int bls, unsigned int lsc);
+
+unsigned long long get_time_ns();
+unsigned long long get_time_resolution_ns();
+unsigned long long time_ns_pread(int fd, void *buf, size_t nbyte, off_t offset);
+unsigned long long time_ns_pread_abs(int fd, void *buf, size_t nbyte, off_t offset);
+
+unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate);
+
+unsigned int get_min_step(int fd, void *buf, unsigned int size, unsigned long long start, double revtime, unsigned int *min_step_time);
+unsigned long long find_next_track_boundary (int fd, void *buf, unsigned int size, unsigned long long lb1, unsigned long long ub1, unsigned int min_step, unsigned int min_step_time, double revtime);
+void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start, unsigned long long end, double revtime, int fastmode, FILE* output);
 
 #endif

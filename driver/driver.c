@@ -7,6 +7,7 @@
 #include <math.h>
 #include <string.h>
 #include "driver.h"
+#include <time.h>
 
 /**
  * Function for printing in_string buffer in hex format
@@ -88,7 +89,7 @@ unsigned int string_to_int(void *in_string, int in_string_size) {
  * @return boolean information if partition is empty or not
  */
 int dump_partition(struct partition *part, int partition_number) {
-	if (part->sys_type == 0x00 || part->sys_type != 0x0c)
+	if (part->sys_type == 0x00)
 		return 0;
 	printf("Partition /dev/sda%d\n", partition_number + 1);
 	printf("boot_flag = %02X\n", part->boot_flag);
@@ -256,7 +257,7 @@ int get_ls_address(int ssa, int ls_per_cl, int cl_n, int b_per_ls) {
  * @return root directory entry address
  */
 int get_root_dir_entry_address(int root_dir, int entry_num) {
-	return root_dir + 32 + (entry_num - 1) * 64;
+	return root_dir + 32 + (entry_num - 1) * 32;
 }
 
 /**
@@ -522,7 +523,7 @@ struct dir_entry* get_dir_entry_by_shname(int fd, char *name, int len, unsigned 
 	unsigned int i = 0;
 	for(unsigned int i = 1; ((((char *)de->short_name)[0] & 0xFF) != 0x00) && (strncmp(name, de->short_name, len) != 0); ++i){
 		get_root_dir_entry(fd, rootaddr, i, de);
-		printf("---0x%x--\n", ((de->short_name[0] & 0xFF)));
+		// printf("---0x%x--\n", ((de->short_name[0] & 0xFF)));
 	}
 	if ((((char *)de->short_name)[0] & 0xFF) == 0x00) 
 		return NULL;
@@ -554,6 +555,464 @@ unsigned int get_bad_sector_count(int fd, unsigned int fat, unsigned int ls_per_
 	}
 	free(buf);
 	return count;
+}
+
+unsigned long long get_time_resolution_ns() {
+	struct timespec t;
+	clock_getres(CLOCK_MONOTONIC_RAW, &t);
+	return t.tv_sec*1000000000ULL + t.tv_nsec;
+}
+
+unsigned long long get_time_ns() {
+	struct timespec t;
+	clock_gettime(CLOCK_MONOTONIC_RAW, &t);
+	return t.tv_sec*1000000000ULL + t.tv_nsec;
+}
+
+unsigned long long time_ns_pread(int fd, void *buf, size_t nbyte, off_t offset) {
+	struct timespec st, et;
+	clock_gettime(CLOCK_MONOTONIC_RAW, &st);
+	
+	if (-1 == pread(fd, buf, nbyte, offset)) {
+		perror("pread failed");
+		return -1;
+	}
+	clock_gettime(CLOCK_MONOTONIC_RAW, &et);
+	return (et.tv_sec - st.tv_sec)*1000000000ULL + (et.tv_nsec - st.tv_nsec);
+}
+
+unsigned long long time_ns_pread_abs(int fd, void *buf, size_t nbyte, off_t offset) {
+	struct timespec et;
+	
+	if (-1 == pread(fd, buf, nbyte, offset)) {
+		perror("pread failed");
+		return -1;
+	}
+	clock_gettime(CLOCK_MONOTONIC_RAW, &et);
+	return et.tv_sec*1000000000ULL + et.tv_nsec;
+}
+
+void sample_stat_reset(struct sample_stat *ss) {
+	ss->sum = 0;
+	ss->sumsq = 0;
+	ss->count = 0;
+}
+
+void sample_stat_sample(struct sample_stat *ss, double value) {
+	ss->sum += value;
+	ss->sumsq += (value * value);
+	ss->count++;
+}
+
+double sample_stat_mean(struct sample_stat *ss) {
+	return ss->sum/ss->count;
+}
+
+double sample_stat_stdevp(struct sample_stat *ss) {
+	return sqrt(ss->sumsq/ss->count - (ss->sum/ss->count)*(ss->sum/ss->count));
+}
+
+double sample_stat_stdev(struct sample_stat *ss) {
+	return sqrt(ss->sumsq/(ss->count-1) - (ss->sum*ss->sum)/(ss->count*(ss->count-1)));
+}
+
+double sample_stat_stdevrr(struct sample_stat *ss) {
+	return sqrt((ss->sumsq - ss->sum*ss->sum/ss->count) / (ss->count*(ss->count-1)));
+}
+
+unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate) {
+	printf("Measuring RPM for %.1f seconds...\n", measure_time_ns/1e9);
+	
+	if (-1 == pread(fd, buf, sector_size, 0)) {
+		perror("pread failed");
+		return -1;
+	}
+
+	unsigned int alt_pos = alternate ? sector_size : 0;
+	unsigned long long st, et, mt, mintime=0, maxtime=0;
+	unsigned int its = 0;
+	mt = et = st = get_time_ns();
+	for (its=0; st + measure_time_ns >= et; its++) {
+		// Maxtor 7405AV: Can't turn off look-ahead, but looks like simply requesting a different sector will not be served from the cache.
+		et = time_ns_pread_abs(fd, buf, sector_size, (its&1) ? alt_pos : 0);
+		if (its==0 || et-mt > maxtime) maxtime = et-mt;
+		if (its==0 || et-mt < mintime) mintime = et-mt;
+		mt = et;
+	}
+	double rpm = its *60.0 / ((et-st)/1e9);
+	printf("    RPM: %.3f (%.3f us per revolution, %u revolutions in %f seconds, max %.3f, min %.3f)\n", rpm, (et-st)/its/1e3, its, (et-st)/1e9, maxtime*1e-3, mintime*1e-3 );
+	if (rpm > 20000) {
+		// Seagate 15K.7: RCD and DRA are sufficient to disable read cache and prefetch
+		// WD S25: DPTL=0 is needed to stop prefetch. It doesn't seem to obey DRA.
+		printf("RPM seems too high for a hard drive. Make sure disk read caching is disabled (Use hdparm -A0 -a0 /dev/<disk> (ATA/SATA) or sdparm -s RCD,DRA,DPTL=0  /dev/<disk>) (SCSI/SAS)\n");
+	}
+	return (et-st)/its + 0.5;
+}
+
+unsigned int get_min_step(int fd, void *buf, unsigned int size, unsigned long long start, double revtime, unsigned int *min_step_time) {
+	double min_step = 1;
+	double min_step_time_avg = 0;
+	double lr = 0.25;
+	unsigned long long pos = start*size;
+	unsigned long long st = get_time_ns();
+	int phase = 0;
+	for (unsigned int n = 0,lim=0; n < 200 && lr > 0.0000001 && lim < 10000;n++) {
+		unsigned long long et = time_ns_pread_abs(fd, buf, size, pos);
+		
+		unsigned int t = et - st;
+		min_step_time_avg = min_step_time_avg * (1.0-lr) + t*lr;
+		if (t > 0.8*revtime) {
+			if (phase)
+				lr *= 0.8;
+			phase = 0;
+			min_step = min_step * (1.0+lr);
+			n=0;
+		}
+		else {
+			min_step = min_step * (1.0-0.01*lr);
+			phase = 1;
+		}
+		pos += ((unsigned int)min_step)*size;
+		//printf("%f: %.2f %.2f  %llu %.1f\n", lr, min_step, min_step_time_avg, t, 0.9*revtime);
+		st = et;
+	}
+	
+	// Add a bit of safety margin
+	min_step_time_avg *= ceil(min_step*1.4)/min_step;
+	min_step = ceil(min_step*1.4);
+
+	//printf("Debug: min_step_time_avg = %f\n", min_step_time_avg);
+	
+	// Get a more accurate estimate of min_step_time
+	struct sample_stat min_step_stat = {0, 0, 0};
+	for (unsigned int i = 0;i < 400;i++) {
+		unsigned long long et = time_ns_pread_abs(fd, buf, size, pos);
+		pos += ((unsigned int)min_step)*size;
+		if (et-st < min_step_time_avg*1.2) {		// Reject samples that look obviously wrong.
+			sample_stat_sample(&min_step_stat, et-st);
+			// min_step_stat.sample(et-st);
+		}
+		st = et;		
+	}
+	if (min_step_time) {
+		if (min_step_stat.count > 200) {
+			// *min_step_time = (unsigned int)(min_step_stat.mean() + min_step_stat.stdev()*2.0);
+			*min_step_time = (unsigned int)(sample_stat_mean(&min_step_stat) + sample_stat_stdev(&min_step_stat)*2.0);
+		}
+		else {
+			printf("Calibrate min_step: Too many bad samples?\n");
+			printf("  Count: %u, min_step: %.0f, min_step_time_avg: %.0f, mean+2*stdev time: %.0f\n", min_step_stat.count, min_step, min_step_time_avg, (sample_stat_mean(&min_step_stat) + sample_stat_stdev(&min_step_stat)*2.0));
+			*min_step_time = (unsigned int)min_step_time_avg;
+		}
+	}
+	return min_step;
+}
+
+unsigned long long find_next_track_boundary (int fd, void *buf, unsigned int size, unsigned long long lb1, unsigned long long ub1, unsigned int min_step, unsigned int min_step_time, double revtime) {
+	unsigned long long ub = ub1, lb = lb1;
+	unsigned int retries = 5;
+	
+	while (ub - lb > 1 && retries) {
+		if (ub - lb > min_step) {
+			unsigned int next_track_partition1 = 0;
+			unsigned int next_track_partition2 = 0;
+			unsigned int it_limit = 64;
+			do {
+				next_track_partition1 = next_track_partition2;
+				//printf("Finding partition: %u %llu-%llu %u %u\n", next_track_partition1, lb, ub, min_step, min_step_time);
+				for (unsigned int j = 0; lb+min_step*j < ub+min_step; j++) {
+					unsigned long long s = lb+j*min_step;					
+					unsigned int t = time_ns_pread(fd, buf, size, s*size);
+
+					if (j == 0) continue;
+					if (t > 1.7 * revtime) {
+						next_track_partition2 = next_track_partition1+1;	// Force fail
+						break;		// Try again...
+					}
+					else {
+						if (t > revtime + min_step_time*0.55) t -= revtime;
+						if (t > revtime + min_step_time*0.55) {
+							min_step *= 1.02;		// If min_step suddenly becomes too small for this region, try slowly increasing it.
+							min_step_time *= 1.02;
+							next_track_partition2 = next_track_partition1+1;	// Force fail
+							break;		// Try again...
+						}
+						else if (t > (min_step_time + (0.3+0.1) * revtime)) {		// step + skew(0.3rev) + guardband(0.1rev)
+							next_track_partition2 = s;
+							break;
+						}
+						else if (t > min_step_time) {
+							next_track_partition2 = s;
+							break;
+						}
+					}
+				}
+			} while (next_track_partition1 != next_track_partition2 && --it_limit);
+			if (next_track_partition2 == 0) return -1;		// No boundary found.
+			lb = next_track_partition2-min_step;
+			ub = next_track_partition2;
+
+		}
+		else {
+			// ub-lb is never bigger than min_step.
+			unsigned long long mp = (ub + lb) >> 1;
+			unsigned int tl, tu;
+			if (mp >= min_step + lb1) {
+				int pread_res = pread(fd, buf, size, (mp-min_step)*size);		// This is always below lb
+				tl = time_ns_pread(fd, buf, size, mp*size);
+				tu = time_ns_pread(fd, buf, size, (mp+min_step)*size);	// This is always above ub
+				if (tl > 1.7 * revtime || tu > 1.7*revtime) {		// Assumption that a correct read does not take more than this amount of time.
+					//printf("Bad: Took too long, trying again.\n");			
+					retries--;	
+				}
+				else {
+					if (retries < 3) {
+						// Desperation: if min_step became too small, it could cause tu/tl to exceed one revolution.
+						if (tu > revtime) tu -= revtime;
+						if (tl > revtime) tl -= revtime;
+					}
+					if (tu < min_step_time && tl > min_step_time) {
+						ub = mp;		// time < min_step_time means no track boundary in that partition
+					}
+					else if (tl < min_step_time && tu > min_step_time) {
+						lb = mp;	
+					}
+					else if (tu < min_step_time && tl < min_step_time) {
+						retries = 0;		// Confused: Both were fast, so there is no track boundary at all?
+						//printf("fast: %u - %u: %u %u, %u\n", lb, ub, tl, tu, min_step_time);
+						break;
+					}
+					else
+					{
+						// Can become confused if the skew is too small and a read across the track
+						// boundary causes a full revolution instead of a decrease in latency.
+						if (retries < 3)
+							printf("Confused, trying again %u: (%llu - %llu) %u %u\n", retries, lb, ub, tl, tu);		
+						lb = lb1;
+						ub = ub1;		
+						retries--;
+					}
+				}
+			}
+			else {
+				int pread_res = pread(fd, buf, size, lb*size);
+				tl = time_ns_pread(fd, buf, size, mp*size);
+				tu = time_ns_pread(fd, buf, size, ub*size);
+				unsigned int low_time_limit = ((mp-lb)*min_step_time/min_step + 0.47*revtime) * 1.1;		// max_skew + time to read half partition if on same track + guardband
+
+				// If controller/something is too slow, then even two sequential sector accesses that
+				// cross a track boundary (including skew) will take > 1 revolution to complete.
+				// The completion time should be exactly one rev + track skew. But set the lower bound
+				// to 1.05*rev time so we don't misclassify accesses that take exactly one rev + 1 sector
+				// (consecutive sectors on the same track). We're assuming that the variation in a measured revolution
+				// is less than 5%, and that the track skew is significantly over 5% of a revolution.
+				tu = fmod(tu-0.05*revtime, revtime) + 0.05*revtime;
+				tl = fmod(tl-0.05*revtime, revtime) + 0.05*revtime;
+
+
+				if (tu > 0.9 * revtime && tl < low_time_limit) {
+					ub = mp;		// One revolution = track boundary isn't in the region we tested.
+				}
+				else if (tl > 0.9 * revtime && tu < low_time_limit) {
+					lb = mp;	
+				}
+				else if (tu > 0.9 * revtime && tl > 0.9 * revtime) {
+					retries = 0;
+					break;
+				}
+				else
+				{
+					// Can become confused if a track switch takes too long (e.g., zone switch)
+					// Eventually, the search range will increase enough so that the alternative 
+					// algorithm (using min_step-spaced reads) can be used, which is more robust
+					// to weird track switch times.
+					//if (retries < 3) printf("Confused, trying again %u: (%llu - %llu) %u %u\n", retries, lb, ub, tl, tu);		
+					lb = lb1;
+					ub = ub1;		
+					retries--;
+				}
+			}
+		}
+	}
+	if (retries == 0) {
+		return -1ULL;
+	}
+	return ub;
+}
+
+void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start, unsigned long long end, double revtime, int fastmode, FILE* output) {
+	// fastmode = 1 is similar to MIMD Zone-finding algorithm: http://www.esos.hanyang.ac.kr/files/publication/journals/international/a6-gim.pdf
+	// -- Needs extra paranoia because track sizes can change frequently and the MIMD algorithm can produce incorrect answers.
+	// fastmode = 0 searches for the next track boundary. It searches one track at a time.
+	//   This algorithm is a O(lg n) algorithm for finding track boundaries, with a prediction of the expected track size to make n small.
+	//   If the prediction is wrong, exponentially expand the search window until the track boundary is found.
+	// fastmode = 1 is the MIMD algorithm with some extra checks added for better reliability.
+	//   It can search multiple tracks ahead, assuming that if both N*track_size and (N-1)*track_size are both
+	//   track boundaries, then it is highly likely that there are exactly N tracks with the same track_size in this region.
+	//   If the track_size estimate needs to change, it falls back to the baseline fastmode=0 algorithm to compute the next track size.
+	printf("Track boundaries%s. (%llu - %llu)\n", fastmode? " (fast)": "",start, end);
+
+	unsigned long long pos = 0;
+	unsigned int track_size;
+	unsigned int zone_size_estimate = 1;
+
+	unsigned int min_step = 10;
+	unsigned int min_step_time = 0;
+	
+	// Find minimum step that doesn't require a complete revolution, then add a guardband.
+	for (int calibrate_retries = 3; calibrate_retries >= 0; calibrate_retries--) {
+		min_step = get_min_step (fd, buf, size, pos, revtime, &min_step_time);
+		if (min_step_time < revtime / 2) break;
+		if (calibrate_retries == 0) {
+			printf("Calibrate min_step failed. Too big: %u, t=%u\n", min_step, min_step_time);
+			return;
+		}
+	}
+	
+	printf("Using min_step %u, t=%u\n", min_step, min_step_time);
+
+	pos = start;
+	track_size = 100;		// Initial estimate of track size, doesn't have to be particularly accurate. Should be less than 2x the real track size, or this algorithm might find track pairs instead of tracks.
+	unsigned int c = 0;
+	while(pos < end) {
+
+		if (fastmode) {
+			unsigned long long new_pos;
+			int allow_increase = 1;
+			unsigned int zone_size = 0;
+			unsigned int track_step = zone_size_estimate * 0.9;
+			int first_iteration = 1;
+			if (track_step < 4) track_step = 4;
+			while (1) {
+				const unsigned long long target = pos + track_step*track_size;			
+				if (target < end) {
+					// Large jumps: Check two adjacent tracks bounds to avoid an incorrect track_size guess from
+					// being accepted as correct if track_step * wrong_track_size happens to be a multiple of correct_track_size.
+					// This is less likely to happen for small jumps, because it requires a bigger error in the track size guess.
+					if (track_step > 4) {
+						new_pos = find_next_track_boundary(fd, buf, size, target-track_size-1, target-track_size+1, min_step, min_step_time, revtime);
+					}
+					if (track_step <= 4 || new_pos == target-track_size)
+						new_pos = find_next_track_boundary(fd, buf, size, target-1, target+1, min_step, min_step_time, revtime);
+					else
+						new_pos = -1ULL;
+				}
+				else
+					new_pos = -1ULL;
+
+				if (new_pos == target) {		// The prediction was exactly correct
+					for (unsigned long long p = pos + track_size; p <= new_pos; p+= track_size)
+							// printf("%llu\t%u\n", p, track_size);
+							fprintf(output, "%llu\t%u\n", p, track_size);
+					zone_size += track_step;
+					if (allow_increase)
+						track_step <<= 1;
+					else {
+						allow_increase = 1;
+					}
+					pos = new_pos;
+					if (first_iteration) {
+						// Performance optimization: If the zone estimate (new_pos == target) is good, there are likely very few tracks left in the zone,
+						// so shrink the track_step estimate to save one (likely-failing) query.
+						track_step = 4;
+					}					
+				}
+				else {
+					if (track_step == 1)
+						break;		// Fast mode fail, go back to finding one track boundary.
+					track_step >>= 2;
+					if (track_step < 1) track_step = 1;
+					allow_increase = 0;
+				}
+				first_iteration = 0;
+				// printf("track_step = %u\n", track_step);
+			}
+			if (zone_size > zone_size_estimate * 1.04 + 10)
+				zone_size_estimate = zone_size_estimate * 1.04 + 10;
+			else if (zone_size > zone_size_estimate)
+				zone_size_estimate = (3*zone_size_estimate + zone_size) >> 2;
+			else if (zone_size > zone_size_estimate * 0.8)
+				zone_size_estimate = zone_size;
+			else if (zone_size > 0)
+				zone_size_estimate *= 0.8;
+		}
+		
+		// change_retries: Keep retrying up to a few times if the track boundary keeps changing the track size.
+		// Measure the track boundary at least twice, and accept it only if we get the same answer twice in a row.
+		// Normally, a track size change results in only one retry to confirm the change.
+		// The purpose is to reduce the chance that random noise can make us choose an incorrect
+		// position for the next track boundary. It would be very expensive to retry and confirm
+		// every track boundary, so only confirm those that change the track size. 
+		// Track sizes don't tend to change frequently, so I'm more skeptical when it changes than when it doesn't.
+		int change_retries = 10;
+		unsigned int new_track_size = track_size;
+		unsigned long long new_pos = -1ULL;
+		while (change_retries--) {
+			unsigned int tolerance = 1;
+			while (new_pos == -1ULL) {
+				if (tolerance >= new_track_size)
+					break;
+				new_pos = find_next_track_boundary(fd, buf, size, pos+new_track_size-tolerance, pos+new_track_size+tolerance, min_step, min_step_time, revtime);
+				//if (new_pos != -1ULL)
+				//	printf("  found: tolerance = %u, diff = %d\n", tolerance, new_pos - (pos + new_track_size));
+				tolerance *= 4;
+			}
+			// We're desperate. Try 10 times before giving up.
+			for (int i=0;i<10 && new_pos == -1ULL;i++) {
+				if (i > 1) {
+					// Recalibrate min_step too?
+					unsigned int new_min_step_time;
+					unsigned int new_min_step = get_min_step (fd, buf, size, pos, revtime, &new_min_step_time);
+					if (new_min_step_time < revtime/2) {
+						min_step = new_min_step;
+						min_step_time = new_min_step_time;
+						if (i > 2) {
+							printf("Desperate: Increasing min_step_time by %.0f%%\n", (i-2)*7.0);
+							min_step_time *= 1+(i-2)*0.07;
+						}
+						printf("Recalibrate: Using min_step %u, t=%u\n", min_step, min_step_time);
+					}
+					else
+						printf("Recalibrate attempt failed: Continuing to use min_step %u, t=%u. Attempt was %u, t=%u\n", min_step, min_step_time, new_min_step, new_min_step_time);				
+				}
+				// The next track boundary must be between 1 and 20000 sectors away. Practically unconstrained because no disk has anywhere near 20K sectors per track. Yet.
+				new_pos = find_next_track_boundary(fd, buf, size, pos+1, pos+20000, min_step, min_step_time, revtime);
+			}
+			
+			if (new_pos == -1ULL)		// Boundary not found despite 10 retries. Skip ahead and continue. There will be incorrect answers here.
+				break;
+			if ((new_pos - pos) == new_track_size)	// Boundary found. Track size didn't change or was the same as the last retry attempt. Done.
+				break;
+			new_track_size = new_pos - pos;	// Boundary found, track size changed, so record the tentative new track size and try again to confirm.
+		}
+		
+		if (new_pos == -1ULL) {
+			pos += track_size;
+			printf("Confused: Can't find next track. Giving up, skipping ahead to sector %llu, and trying again.\n", pos);
+			continue;
+		}
+		
+		// Limit growth of track size estimate. If we make an error on one track, this error can
+		// persist indefinitely if the estimated track size is an integer multiple of the real track size.
+		
+		if ((new_pos - pos) > track_size * 1.2 + 10)
+			track_size = track_size * 1.2 + 10;
+		else if ((new_pos - pos) < track_size * 0.9)
+			track_size = track_size * 0.9;
+		else
+			track_size = new_pos - pos;
+		
+		if (new_pos > end)
+			new_pos = end;		// find_next_track_boundary can overrun the end of disk, so clamp the result then quit.
+		// fprintf(output, "%llu\t%lld\n", new_pos, (new_pos - pos));
+		if (c++ == 32) {
+			c = 0;
+			fflush(output);
+		}
+		pos = new_pos;
+	}
+
+	return;
 }
 
 #ifdef NOT_TESTING
