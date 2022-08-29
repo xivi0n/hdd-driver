@@ -12,9 +12,24 @@
 #include <sys/ioctl.h>
 #include "../driver/driver.h"
 
-int main() {
-	FILE* fp = fopen("/home/syrmia/Desktop/disk/analysis/tracks-fast.txt", "w");
-    char *fname = "/dev/sda";
+// sudo ./extract-tracks -f /home/syrmia/Desktop/disk/analysis/test.txt -d /dev/sda -fast
+int main(int argc, char* argv[]) {
+	if (argc < 5) {
+		perror("Invalid number of arguments! ./extract-tracks -f filename -d device [-fast]");
+		return -1;
+	}
+	char *filename = NULL;
+	char *dev = NULL;
+	int fastmode = 0;
+	for(int i = 0; i < argc; ++i) {
+		if (strcmp(argv[i], "-fast") == 0)
+			fastmode = 1;
+		else if (strcmp(argv[i], "-f") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
+			filename = argv[i + 1];
+		else if (strcmp(argv[i], "-d") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
+			dev = argv[i + 1];
+	}
+	FILE* fp = fopen(filename, "w");
     unsigned long long measure_rpm_time = 3000000000;
     int rpm_alternate = 1;
 	unsigned int force_sector_size = 0;
@@ -23,7 +38,7 @@ int main() {
 	char *sector_buf=NULL;
 	unsigned long long revtime = 0;
 
-    int fd = open(fname, __O_DIRECT | O_RDONLY);
+    int fd = open(dev, __O_DIRECT | O_RDONLY);
 	if (fd == -1)	{
 		perror("Failed to open");
 		return -1;
@@ -63,7 +78,6 @@ int main() {
 	}
     unsigned long long start = 0;
     unsigned long long end = sz_sectors;
-    int fastmode = 1;
 
 	unsigned long long test_runtime_start = get_time_ns();
     track_bounds(fd, sector_buf, sector_size, start, end, revtime, fastmode, fp);
