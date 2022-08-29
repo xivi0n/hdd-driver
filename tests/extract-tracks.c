@@ -15,11 +15,12 @@
 // sudo ./extract-tracks -f /home/syrmia/Desktop/disk/analysis/test.txt -d /dev/sda -fast
 int main(int argc, char* argv[]) {
 	if (argc < 5) {
-		perror("Invalid number of arguments! ./extract-tracks -f filename -d device [-fast]");
+		perror("Invalid number of arguments! ./extract-tracks -f filename -d device [-fs N][-fast]");
 		return -1;
 	}
 	char *filename = NULL;
 	char *dev = NULL;
+	char *ss = NULL;
 	int fastmode = 0;
 	for(int i = 0; i < argc; ++i) {
 		if (strcmp(argv[i], "-fast") == 0)
@@ -28,6 +29,8 @@ int main(int argc, char* argv[]) {
 			filename = argv[i + 1];
 		else if (strcmp(argv[i], "-d") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			dev = argv[i + 1];
+		else if (strcmp(argv[i], "-fs") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
+			ss = argv[i + 1];
 	}
 	FILE* fp = fopen(filename, "w");
     unsigned long long measure_rpm_time = 3000000000;
@@ -37,6 +40,10 @@ int main(int argc, char* argv[]) {
 
 	char *sector_buf=NULL;
 	unsigned long long revtime = 0;
+
+	if (ss) {
+		force_sector_size = atoi(ss);
+	}
 
     int fd = open(dev, __O_DIRECT | O_RDONLY);
 	if (fd == -1)	{
@@ -58,7 +65,7 @@ int main(int argc, char* argv[]) {
 		sector_size = force_sector_size;
 	}
 	if (sector_size == 0) {
-		printf("Sector size can't be zero. Use --force-sector-size to choose a sector size if necessary.\n");
+		printf("Sector size can't be zero. Use -fs to choose a sector size if necessary.\n");
 		return -1;
 	}
 
