@@ -620,8 +620,9 @@ double sample_stat_stdevrr(struct sample_stat *ss) {
 	return sqrt((ss->sumsq - ss->sum*ss->sum/ss->count) / (ss->count*(ss->count-1)));
 }
 
-unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate) {
-	printf("Measuring RPM for %.1f seconds...\n", measure_time_ns/1e9);
+unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate, int suppress_header) {
+	if (!suppress_header)
+		printf("Measuring RPM for %.1f seconds...\n", measure_time_ns/1e9);
 	
 	if (-1 == pread(fd, buf, sector_size, 0)) {
 		perror("pread failed");
@@ -640,7 +641,8 @@ unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_siz
 		mt = et;
 	}
 	double rpm = its *60.0 / ((et-st)/1e9);
-	printf("    RPM: %.3f (%.3f us per revolution, %u revolutions in %f seconds, max %.3f, min %.3f)\n", rpm, (et-st)/its/1e3, its, (et-st)/1e9, maxtime*1e-3, mintime*1e-3 );
+	if (!suppress_header)
+		printf("    RPM: %.3f (%.3f us per revolution, %u revolutions in %f seconds, max %.3f, min %.3f)\n", rpm, (et-st)/its/1e3, its, (et-st)/1e9, maxtime*1e-3, mintime*1e-3 );
 	if (rpm > 20000) {
 		// Seagate 15K.7: RCD and DRA are sufficient to disable read cache and prefetch
 		// WD S25: DPTL=0 is needed to stop prefetch. It doesn't seem to obey DRA.
@@ -1013,6 +1015,103 @@ void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start
 	}
 
 	return;
+}
+
+//	readsize should normally be set to be equal to size (the sector size). Set readsize bigger if you want to
+//	read more than one sector at once. Ensure buf is big enough for the entire read.
+void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp) {
+	if (!suppress_header) {
+		printf ("Seek time, %s. Jump from %llu, to (%llu - %llu, step %u) with max error %.2f us\n",
+			measure_absolute_time ? "absolute" : "relative to angular position",
+			jump_from, start, end, step, max_error);
+	}
+		
+	const unsigned int BUFSZ = 13;
+	angpos_data_t data[1<<BUFSZ];		// A circular queue of results for future sectors. Opportunistically sample several sectors over two revolutions to improve speed.
+	memset(data, 0, sizeof(data));
+	unsigned int pdata=0;
+	jump_from *= size;			// Translate sector number to byte position.
+	max_error *= 1000.0;		// We use nanoseconds, user uses microseconds
+
+	unsigned int secondary_jump_size = step ? 50/step+16 : 66;		// In units of step*sector_size
+	unsigned long long pass_time_limit = revtime * 1.8;	// Time limit for a pass. We want to be able to return to 
+													// jump_from for the next pass without waiting for another revolution.
+	unsigned long long pass_prev_starttime = 0;
+	
+	for (unsigned long long i = 0; start+i*step < end; i++)
+	{
+		double cur_error = 0;
+		int prev_pass_time_limit_exempt = 1;
+		int max_retries = 2345;		// Try to get error below max_error, but give up after max_retries.
+		do
+		{
+			unsigned long long pos = (start+i*step);
+			int pread_res = pread(fd, buf, readsize, jump_from);		// Do two reads of the reference sector? Ensure we start timing with heads stationary. Unsure if this amount of paranoia is really necessary.
+			unsigned long long starttime = time_ns_pread_abs(fd, buf, readsize, jump_from);
+			if (!prev_pass_time_limit_exempt && starttime - pass_prev_starttime >= 2.5*revtime) {
+				pass_time_limit *= 0.95;
+				if (pass_time_limit < revtime)
+					pass_time_limit = revtime;
+				//printf ("pass: Missed start of next pass: new pass_time_limit = %u. Time was %llu\n", pass_time_limit, starttime - pass_prev_starttime);
+			}
+			else {
+				pass_time_limit += 10000;
+				if (pass_time_limit > 2*revtime)
+					pass_time_limit = 2*revtime;
+			}
+			pass_prev_starttime = starttime;
+			unsigned long long endtime = starttime;
+			unsigned int data_index = pdata;
+			unsigned int sectors_this_pass = 0;
+			prev_pass_time_limit_exempt = 0;
+			do {
+				unsigned long long t = time_ns_pread_abs(fd, buf, readsize, pos*size);
+				if ((endtime != starttime) && (t - endtime > 0.98*revtime)) {
+					secondary_jump_size *= 1.05;
+					prev_pass_time_limit_exempt = 1;
+				}
+				endtime = t;
+				angpos_data_t *d = &data[data_index];
+
+				long long delta_time = endtime - starttime;
+				
+				sample_stat_sample(&(d->s_nodelta), delta_time);
+				if (d->s.count == 0) {
+					d->first = measure_absolute_time ? delta_time : fmod(delta_time, revtime);
+					sample_stat_sample(&(d->s), 0);
+					d->min = delta_time;
+				}
+				else {					
+					double timemod = remainder(delta_time - (long long)(d->first), revtime);
+					sample_stat_sample(&(d->s), timemod);
+					if (delta_time < d->min)
+						d->min = delta_time;
+				}
+				const unsigned int scaled_secondary_jump_size = secondary_jump_size >> 3;
+				pos += scaled_secondary_jump_size*step;
+				data_index = (data_index + scaled_secondary_jump_size) & ((1<<BUFSZ)-1);
+				sectors_this_pass += scaled_secondary_jump_size;
+
+				if (sectors_this_pass >= (1<<BUFSZ)) 	// Don't overflow the data array
+					break;
+			} while ( !measure_absolute_time && (endtime - starttime) < pass_time_limit && pos < end);
+			if (secondary_jump_size > 32)
+				secondary_jump_size--;
+			cur_error = (data[pdata].s.count > 2) ? sample_stat_stdevrr(&(data[pdata].s)) : max_error;
+		} while (--max_retries && (max_error > 0 && cur_error >= max_error));
+		
+		angpos_data_t *d = &data[pdata];
+		if (measure_absolute_time) {
+			//double adj = round(((int)d.min - (int)d.first) / revtime) * revtime;
+			double adj = round(((int)sample_stat_mean(&(d->s_nodelta)) - d->first) / revtime) * revtime;
+			d->first += adj;
+		}
+		fprintf(fp, "%llu\t%.0f\t%.1f\t%u\t%u\t%.0f\t%.0f\n", start+(i*step), (d->first + sample_stat_mean(&(d->s)))/1000.0, sample_stat_stdevrr(&(d->s))/1000.0, d->s.count, data[(pdata+1)&((1<<BUFSZ)-1)].s.count, d->min*1.e-3, sample_stat_mean(&(d->s_nodelta))*1e-3);
+		
+		memset(&data[pdata], 0, sizeof(angpos_data_t));
+		pdata = (pdata + 1) & ((1<<BUFSZ)-1);
+		fflush(fp);
+	}
 }
 
 #ifdef NOT_TESTING

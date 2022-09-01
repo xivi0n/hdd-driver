@@ -96,6 +96,13 @@ struct sample_stat {
 	unsigned int count;
 };
 
+typedef struct {
+	struct sample_stat s;
+	struct sample_stat s_nodelta;
+	int first;
+	int min;
+} angpos_data_t;
+
 void sample_stat_reset(struct sample_stat *ss);
 void sample_stat_sample(struct sample_stat *ss, double value);
 double sample_stat_mean(struct sample_stat *ss);
@@ -140,10 +147,10 @@ unsigned long long get_time_resolution_ns();
 unsigned long long time_ns_pread(int fd, void *buf, size_t nbyte, off_t offset);
 unsigned long long time_ns_pread_abs(int fd, void *buf, size_t nbyte, off_t offset);
 
-unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate);
+unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_size, unsigned long long measure_time_ns, int alternate, int suppress_header);
 
 unsigned int get_min_step(int fd, void *buf, unsigned int size, unsigned long long start, double revtime, unsigned int *min_step_time);
 unsigned long long find_next_track_boundary (int fd, void *buf, unsigned int size, unsigned long long lb1, unsigned long long ub1, unsigned int min_step, unsigned int min_step_time, double revtime);
 void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start, unsigned long long end, double revtime, int fastmode, FILE* output);
-
+void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp);
 #endif
