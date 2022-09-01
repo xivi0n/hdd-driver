@@ -1,4 +1,3 @@
-#include <stdlib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -36,9 +35,9 @@ int main(int argc, char* argv[]) {
     unsigned long long measure_rpm_time = 3000000000;
     int rpm_alternate = 1;
 	unsigned int force_sector_size = 0;
-	unsigned int sector_size=0;
+	unsigned int sector_size = 0;
 
-	char *sector_buf=NULL;
+	char *sector_buf = NULL;
 	unsigned long long revtime = 0;
 
 	if (ss) {
@@ -76,7 +75,7 @@ int main(int argc, char* argv[]) {
 
 	sector_buf = (char*)mmap(NULL, sector_size*16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
 	if (revtime == 0) {
-		revtime = measure_rev_period(fd, sector_buf, sector_size, measure_rpm_time, rpm_alternate);
+		revtime = measure_rev_period(fd, sector_buf, sector_size, measure_rpm_time, rpm_alternate, 0);
 		fprintf(fp, "rev_time\t%llu\n", revtime);
 		fprintf(fp, "rpm\t%.3f\n", 60e9/revtime);
 	}
