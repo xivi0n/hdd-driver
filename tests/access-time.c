@@ -10,11 +10,11 @@
 #include <linux/fs.h>
 #include "../driver/driver.h"
 
-// sudo ./access-time -d /dev/sda -r 0,0,1,10 [-fs N][-f /output_file.txt]
+// sudo ./access-time -d /dev/sda -rev 8333395 -r 0,0,1,10 [-fs N][-f /output_file.txt]
 // sudo ./access-time -d /dev/sda -l 0,5,6,7,8
 int main(int argc, char* argv[]) {
     if (argc < 5) {
-		perror("Invalid number of arguments! ./access-time -d device -r ref,start,step,end,err | -l ref,err,1st,2nd,3rd [-fs N][-f /output_file.txt][-ang]");
+		perror("Invalid number of arguments! ./access-time -d device -r ref,start,step,end,err | -l ref,err,1st,2nd,3rd [-fs N][-f /output_file.txt][-ang][-rev time]\n");
 		return -1;
 	}
     char *filename = NULL;
@@ -24,6 +24,7 @@ int main(int argc, char* argv[]) {
     char *list = NULL;
     int suppress_header = 1;
     int mode = 1;
+    unsigned long long revtime = 0;
     for(int i = 0; i < argc; ++i) {
         if (strcmp(argv[i], "-f") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			filename = argv[i + 1];
@@ -37,6 +38,8 @@ int main(int argc, char* argv[]) {
 			list = argv[i + 1];
         else if (strcmp(argv[i], "-ang") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			mode = 0;
+        else if (strcmp(argv[i], "-rev") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
+			revtime = atoi(argv[i+1]);
 	}
 
     unsigned long long measure_rpm_time = 3000000000;
@@ -47,11 +50,8 @@ int main(int argc, char* argv[]) {
     fp = !filename ? stdout : fopen(filename, "w");
 
     char *sector_buf = NULL;
-	unsigned long long revtime = 0;
-
-    if (ss) {
+    if (ss)
 		force_sector_size = atoi(ss);
-	}
 
     int fd = open(dev, __O_DIRECT | O_RDONLY);
 	if (fd == -1)	{

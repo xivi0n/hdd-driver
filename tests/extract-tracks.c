@@ -14,7 +14,7 @@
 // sudo ./extract-tracks -f /home/syrmia/Desktop/disk/analysis/test.txt -d /dev/sda -fast
 int main(int argc, char* argv[]) {
 	if (argc < 5) {
-		perror("Invalid number of arguments! ./extract-tracks -f filename -d device [-fs N][-fast]");
+		perror("Invalid number of arguments! ./extract-tracks -f filename -d device [-fs N][-fast]\n");
 		return -1;
 	}
 	char *filename = NULL;
