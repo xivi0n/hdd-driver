@@ -14,7 +14,7 @@
 // sudo ./access-time -d /dev/sda -l 0,5,6,7,8
 int main(int argc, char* argv[]) {
     if (argc < 5) {
-		perror("Invalid number of arguments! ./access-time -d device -r ref,start,step,end,err | -l ref,err,1st,2nd,3rd [-fs N][-f /output_file.txt][-ang][-rev time]\n");
+		perror("Invalid number of arguments! ./access-time -d device -r ref,start,step,end,err | -l[s] ref,err,1st,2nd,3rd [-fs N][-f /output_file.txt][-ang][-rev time][-n N]\n");
 		return -1;
 	}
     char *filename = NULL;
@@ -25,6 +25,8 @@ int main(int argc, char* argv[]) {
     int suppress_header = 1;
     int mode = 1;
     unsigned long long revtime = 0;
+    int N = 1;
+    int seq = 0;
     for(int i = 0; i < argc; ++i) {
         if (strcmp(argv[i], "-f") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			filename = argv[i + 1];
@@ -34,13 +36,22 @@ int main(int argc, char* argv[]) {
 			ss = argv[i + 1];
         else if (strcmp(argv[i], "-r") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			range = argv[i + 1];
-        else if (strcmp(argv[i], "-l") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
-			list = argv[i + 1];
+        else if (strcmp(argv[i], "-l") == 0 && (i != argc - 1) && (argv[i+1][0] != '-')){
+            list = argv[i + 1];
+            if (strcmp(argv[i], "-ls") == 0)
+                seq = 1;
+        }
         else if (strcmp(argv[i], "-ang") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			mode = 0;
         else if (strcmp(argv[i], "-rev") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
 			revtime = atoi(argv[i+1]);
+        else if (strcmp(argv[i], "-n") == 0 && (i != argc - 1) && (argv[i+1][0] != '-'))
+			N = atoi(argv[i+1]);
 	}
+    if (N <= 0) {
+        perror("Invalid number of sectors!\n");
+        return -1;
+    }
 
     unsigned long long measure_rpm_time = 3000000000;
     int rpm_alternate = 1;
@@ -69,7 +80,7 @@ int main(int argc, char* argv[]) {
 		perror("Sector size can't be zero. Use -fs to choose a sector size if necessary.\n");
 		return -1;
 	}
-    sector_buf = (char*)mmap(NULL, sector_size*16, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
+    sector_buf = (char*)mmap(NULL, sector_size*16*N, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, 0, 0);
     if (revtime == 0)
 		revtime = measure_rev_period(fd, sector_buf, sector_size, measure_rpm_time, rpm_alternate, 1);
 
@@ -85,7 +96,7 @@ int main(int argc, char* argv[]) {
             perror("Invalid range!\n");
             return -1;
         }
-        angpos(fd, sector_buf, sector_size, sector_size, arr[0], arr[1], arr[2], arr[3], arr[4], mode, revtime, suppress_header, fp);
+        angpos(fd, sector_buf, sector_size, N*sector_size, arr[0], arr[1], arr[2], arr[3], arr[4], mode, revtime, suppress_header, fp);
     } else if (list) {
         char* token = strtok(list, ",");
         unsigned long long ref = 0;
@@ -106,7 +117,9 @@ int main(int argc, char* argv[]) {
         }
         while(token != NULL) {
             unsigned long long t = atoi(token);
-            angpos(fd, sector_buf, sector_size, sector_size, ref, t, 1, t + 1, err, mode, revtime, suppress_header, fp);
+            angpos(fd, sector_buf, sector_size, N*sector_size, ref, t, 1, t + 1, err, mode, revtime, suppress_header, fp);
+            if (seq)
+                ref = t;
             token = strtok(NULL, ",");
         }
     }
