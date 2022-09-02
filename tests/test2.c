@@ -131,8 +131,8 @@ void write_fdatasync(int size, unsigned char *buf, char *filename) {
     printf("\tdsync time: %f\n", get_secs_t(total[2]));
 }
 
-// sudo ./test3 filepath n_times_pagesize 
-// sudo ./test3 /media/syrmia/KINGSTON/test3.txt 10
+// sudo ./test2 filepath n_times_pagesize 
+// sudo ./test2 /media/syrmia/KINGSTON/test2.txt 10
 int main(int argc, char **argv) {
     if (argc != 3) {
         perror("Invalid number of arguments!\n");

@@ -17,8 +17,12 @@ get diretory root entry based on short filename and a lot of helper functions as
 for almost everything we need.
 
 Tests are example usage of driver:
-- Test0 creates a file and returns it's address and cluster number
-- Test1 calculates disk buffer size on a given device
+- test0: creates a file and returns it's address and cluster number
+- test1: calculates disk buffer size on a given device
+- test2: compares the performance of system calls and flags used for writing files
+- rev-time: calculates rpm and revolution time in nanoseconds
+- extract-tracks: extracts the track size for each sector on hdd
+- acces-time: multi-purpose test used for calculating the access time and angular position
 
 ## Building 
 
