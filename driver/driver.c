@@ -7,7 +7,26 @@
 #include <math.h>
 #include <string.h>
 #include <time.h>
+#include <sys/time.h>
+#include "colors.h"
 #include "driver.h"
+
+
+double get_secs(struct timeval start, struct timeval stop) {
+    return (double)(stop.tv_usec - start.tv_usec) / 1000000 + (double)(stop.tv_sec - start.tv_sec);
+}
+
+double get_secs_t(struct timeval t) {
+    return (double)(t.tv_usec) / 1000000 + (double)(t.tv_sec);
+}
+
+struct timeval add_t(struct timeval t1, struct timeval t2) {
+    return (struct timeval) {t1.tv_sec + t2.tv_sec, t1.tv_usec + t2.tv_usec};
+}
+
+struct timeval sub_t(struct timeval t1, struct timeval t2) {
+    return (struct timeval) {t1.tv_sec - t2.tv_sec, t1.tv_usec - t2.tv_usec};
+}
 
 /**
  * Function for printing in_string buffer in hex format
@@ -1019,7 +1038,7 @@ void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start
 
 //	readsize should normally be set to be equal to size (the sector size). Set readsize bigger if you want to
 //	read more than one sector at once. Ensure buf is big enough for the entire read.
-void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp) {
+double angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp) {
 	if (!suppress_header) {
 		printf ("Seek time, %s. Jump from %llu, to (%llu - %llu, step %u) with max error %.2f us\n",
 			measure_absolute_time ? "absolute" : "relative to angular position",
@@ -1037,6 +1056,7 @@ void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigne
 	unsigned long long pass_time_limit = revtime * 1.8;	// Time limit for a pass. We want to be able to return to 
 													// jump_from for the next pass without waiting for another revolution.
 	unsigned long long pass_prev_starttime = 0;
+	double ret = -1.0;
 	
 	for (unsigned long long i = 0; start+i*step < end; i++)
 	{
@@ -1106,12 +1126,54 @@ void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigne
 			double adj = round(((int)sample_stat_mean(&(d->s_nodelta)) - d->first) / revtime) * revtime;
 			d->first += adj;
 		}
-		fprintf(fp, "%llu\t%.0f\t%.1f\t%u\t%u\t%.0f\t%.0f\n", start+(i*step), (d->first + sample_stat_mean(&(d->s)))/1000.0, sample_stat_stdevrr(&(d->s))/1000.0, d->s.count, data[(pdata+1)&((1<<BUFSZ)-1)].s.count, d->min*1.e-3, sample_stat_mean(&(d->s_nodelta))*1e-3);
-		
+		ret = (d->first + sample_stat_mean(&(d->s)))/1000.0;
+		fprintf(fp, "%llu\t%.0f\t%.1f\t%u\t%u\t%.0f\t%.0f\n", start+(i*step), ret, sample_stat_stdevrr(&(d->s))/1000.0, d->s.count, data[(pdata+1)&((1<<BUFSZ)-1)].s.count, d->min*1.e-3, sample_stat_mean(&(d->s_nodelta))*1e-3);
 		memset(&data[pdata], 0, sizeof(angpos_data_t));
 		pdata = (pdata + 1) & ((1<<BUFSZ)-1);
 		fflush(fp);
 	}
+	return ret;
+}
+
+// FILE *fp to be replaced with FAT address 
+unsigned long long get_closest_free_cluster(int fd, void *buf, unsigned int size, unsigned long long jump_from, unsigned long long track_size, unsigned long long cluster_size, double revtime, int suppress_header, FILE *fp) {
+	unsigned char cbuf[4];
+	unsigned long long cnt = 0, zcnt = 0;;
+	unsigned long long min_access_time = -1;
+	unsigned long long t;
+	unsigned long long sector = -1;
+	char s[60];
+	char tmp;
+	double r;
+	struct timeval start, stop, total = {0, 0};
+	while (fscanf(fp, "%4c", cbuf) != -1 && cnt < track_size * 3) {
+		if (string_to_int(cbuf, 4) == 0) {
+			t = cnt * cluster_size;
+			gettimeofday(&start, NULL);
+			r = angpos(fd, buf, size, size, jump_from, t, 1, t + 1, 120, 1, revtime, 1, stdout);
+			gettimeofday(&stop, NULL);
+			total = add_t(total, sub_t(stop, start));
+			zcnt++;
+			if (r < min_access_time) {
+				sector = cnt * 12;
+				if (r / min_access_time < 0.2 && min_access_time != -1) {
+					min_access_time = r;
+					break;
+				}
+				min_access_time = r;
+			} else if (r / min_access_time > 1.8)
+				break;
+		}
+		cnt++;
+	}
+	if (!suppress_header) {
+		set_cl(_CL_OKGREEN, _CL_BOLD);
+		printf("time taken: %f; avg: %f\n\n", get_secs_t(total), get_secs_t(total)/zcnt);
+		set_cl(_CL_ENDC);
+		fflush(stdout);
+	}
+	printf("---%llu %llu---\n", sector, min_access_time);
+	return sector;
 }
 
 #ifdef NOT_TESTING

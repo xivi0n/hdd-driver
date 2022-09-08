@@ -152,5 +152,6 @@ unsigned long long measure_rev_period(int fd, void *buf, unsigned int sector_siz
 unsigned int get_min_step(int fd, void *buf, unsigned int size, unsigned long long start, double revtime, unsigned int *min_step_time);
 unsigned long long find_next_track_boundary (int fd, void *buf, unsigned int size, unsigned long long lb1, unsigned long long ub1, unsigned int min_step, unsigned int min_step_time, double revtime);
 void track_bounds(int fd, void *buf, unsigned int size, unsigned long long start, unsigned long long end, double revtime, int fastmode, FILE* output);
-void angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp);
+double angpos(int fd, void *buf, unsigned int size, unsigned int readsize, unsigned long long jump_from, unsigned long long start, unsigned int step, unsigned long long end, double max_error, int measure_absolute_time, double revtime, int suppress_header, FILE *fp);
+unsigned long long get_closest_free_cluster(int fd, void *buf, unsigned int size, unsigned long long jump_from, unsigned long long track_size, unsigned long long cluster_size, double revtime, int suppress_header, FILE *fp);
 #endif
