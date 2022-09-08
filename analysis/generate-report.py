@@ -4,8 +4,9 @@ import re
 def get_bandwidth(params, size):
     return (params["sector_size"] * size * 1e9) / params["rev_time"] / 1024 / 1024
 
+filename = "tracks-slow.txt"
 params = {}
-with open("tracks-fast.txt", "r") as f:
+with open(filename, "r") as f:
     for i, line in enumerate(f):
         r = re.match("([a-zA-Z_]+)[\t]([0-9]+[.]+[0-9]+|[0-9]+)[\n]", line)
         if r is None:
@@ -19,7 +20,7 @@ print(params)
         
 x = []
 y = []
-with open("test.txt", "r") as f:
+with open(filename, "r") as f:
     for line in f:
         r = re.findall("[0-9]+[\t][0-9]+[\n]", line)
         if (len(r) > 0):
@@ -27,7 +28,7 @@ with open("test.txt", "r") as f:
             x.append(r[0])
             y.append(r[1])
 
-perc = 0.05
+perc = 0.02
 max_lba = params["file_size"]//params["sector_size"]
 params["max_lba"] = max_lba
 params["tracks"] = {}

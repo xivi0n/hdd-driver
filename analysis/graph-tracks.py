@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 x = []
 y = []
-with open("output-fast.txt", "r") as f:
+with open("tracks-slow.txt", "r") as f:
     for line in f:
         r = re.findall("[0-9]+[\t][0-9]+[\n]", line)
         # print(r)
