@@ -11,7 +11,7 @@
 #include "../driver/driver.h"
 
 // sudo ./access-time -d /dev/sda -rev 8333395 -r 0,0,1,10 [-fs N][-f /output_file.txt]
-// sudo ./access-time -d /dev/sda -l 0,5,6,7,8
+// sudo ./access-time -d /dev/sda -l 0,20,5,6,7,8
 int main(int argc, char* argv[]) {
     if (argc < 5) {
 		perror("Invalid number of arguments! ./access-time -d device -r ref,start,step,end,err | -l[s] ref,err,1st,2nd,3rd [-fs N][-f /output_file.txt][-ang][-rev time][-n N]\n");
